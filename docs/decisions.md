@@ -25,6 +25,15 @@ Errors (standard Graph error shape `{"error": {"message", "type", "code", "error
 - HTTP 429, HTTP 5xx, and Graph throttling codes `4`, `17`, `32`, `613` → retry (1 s, 4 s, 16 s), then fail. The throttling codes are an addition to the brief: Graph often reports throttling as HTTP 400 with one of these codes.
 - Any other 4xx → fail immediately.
 
+### Adapter choices (M3)
+
+- **Fail the run** (malformed response, nothing written): body is not JSON, no `data` list, or an entry lacks `id`, `media_type`, `permalink`, or a valid ISO 8601 `timestamp`.
+- **Skip the item with a warning** (run continues): ID outside `^[A-Za-z0-9_-]{1,64}$`; permalink not on `https://www.instagram.com/` or `https://instagram.com/`; `media_product_type: STORY`; unknown `media_type`; no usable https thumbnail URL.
+- **Videos and Reels use `thumbnail_url` only.** Their `media_url` is the video file, and the brief says never to download video. A video with no `thumbnail_url` is skipped.
+- **Pagination builds the next URL from `paging.cursors.after`** instead of following `paging.next`, so the token only goes to a URL we constructed. Skipped entries count toward `fetch.limit`.
+- **Network failures** (fetch throws) retry on the same schedule as 429/5xx.
+- **Fixture mode** (`fixture_dir`) swaps `fetch` for a file reader: `<last path segment>[-after-<cursor>].json` for API calls, and `https://fixtures.invalid/<path>` for thumbnails.
+
 ## 17.2 Token refresh semantics
 
 Source: `reference/refresh_access_token`.

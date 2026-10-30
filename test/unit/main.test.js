@@ -38,6 +38,12 @@ test('readInputs rejects a non-boolean dry_run', () => {
 });
 
 const MINIMAL_CONFIG = join(import.meta.dirname, '../fixtures/config/minimal.yml');
+const INSTAGRAM_FIXTURES = join(import.meta.dirname, '../fixtures/instagram');
+
+// No test may reach the network; this fails loudly if one tries.
+const noNetwork = () => {
+  throw new Error('network access in a test');
+};
 
 function workspace(t) {
   const dir = tempDir(t);
@@ -49,7 +55,7 @@ test('run fails on an invalid config before doing anything else', async (t) => {
   const dir = tempDir(t);
   writeFileSync(join(dir, 'simple-media.yml'), 'fallback: X\n');
   const { logger } = captureLogger();
-  await assert.rejects(run({ env: actionEnv({}, { GITHUB_WORKSPACE: dir }), logger }), {
+  await assert.rejects(run({ env: actionEnv({}, { GITHUB_WORKSPACE: dir }), logger, fetch: noNetwork }), {
     name: 'ConfigError',
     message: 'simple-media.yml: site: is required (with at least title and contact_email)',
   });
@@ -59,10 +65,10 @@ test('run accepts a matching config provider and rejects an unknown one', async 
   const dir = tempDir(t);
   writeFileSync(join(dir, 'feed.yml'), 'provider: instagram\nsite:\n  title: T\n  contact_email: a@b.co\nfallback: X\n');
   const { logger } = captureLogger();
-  const env = actionEnv({ config: 'feed.yml' }, { GITHUB_WORKSPACE: dir });
-  await assert.doesNotReject(run({ env, logger }));
+  const env = actionEnv({ config: 'feed.yml', fixture_dir: INSTAGRAM_FIXTURES }, { GITHUB_WORKSPACE: dir });
+  await assert.doesNotReject(run({ env, logger, fetch: noNetwork }));
   writeFileSync(join(dir, 'feed.yml'), 'provider: tiktok\nsite:\n  title: T\n  contact_email: a@b.co\nfallback: X\n');
-  await assert.rejects(run({ env, logger }), { name: 'ConfigError' });
+  await assert.rejects(run({ env, logger, fetch: noNetwork }), { name: 'ConfigError' });
 });
 
 test('run prints a summary, writes the step summary and the changed output', async (t) => {
@@ -70,13 +76,17 @@ test('run prints a summary, writes the step summary and the changed output', asy
   const summaryPath = join(dir, 'summary.md');
   const outputPath = join(dir, 'output.txt');
   const { logger, all } = captureLogger({ summaryPath });
-  const env = actionEnv({ dry_run: 'true', fixture_dir: 'x' }, { GITHUB_OUTPUT: outputPath, GITHUB_WORKSPACE: dir });
+  const env = actionEnv(
+    { dry_run: 'true', fixture_dir: INSTAGRAM_FIXTURES },
+    { GITHUB_OUTPUT: outputPath, GITHUB_WORKSPACE: dir },
+  );
 
-  const result = await run({ env, logger });
+  const result = await run({ env, logger, fetch: noNetwork });
 
   assert.equal(result.changed, false);
+  assert.equal(result.fetched, 6);
   assert.match(all(), /provider=instagram dry_run=true fixtures=on/);
-  assert.match(readText(summaryPath), /\| instagram \| true \| 0 \| 0 \| 0 \| 0 \|/);
+  assert.match(readText(summaryPath), /\| instagram \| true \| 6 \| 0 \| 0 \| 0 \|/);
   assert.equal(readText(outputPath), 'changed=false\n');
   assert.equal(all().includes(FAKE_TOKEN), false);
 });
@@ -97,4 +107,18 @@ test('main reports a user error without a stack trace and sets the exit code', a
   [process.stdout.write, process.stderr.write] = restore;
   assert.equal(process.exitCode, 1);
   assert.deepEqual(writes, ['::error::Input "token" is required.\n', 'Input "token" is required.\n']);
+});
+
+test('run warns about skipped items without failing', async (t) => {
+  const dir = workspace(t);
+  const { logger, stdout } = captureLogger();
+  const page = {
+    data: [
+      { id: '../x', media_type: 'IMAGE', permalink: 'https://www.instagram.com/p/A/', timestamp: '2026-10-01T00:00:00+0000', media_url: 'https://cdn.example/a.jpg' },
+    ],
+  };
+  const fetch = async () => new Response(JSON.stringify(page));
+  const result = await run({ env: actionEnv({}, { GITHUB_WORKSPACE: dir }), logger, fetch });
+  assert.equal(result.fetched, 0);
+  assert.match(stdout.text(), /::warning::Skipped instagram item \.\.\/x: id has characters that are not allowed in a file name\./);
 });

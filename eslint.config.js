@@ -12,6 +12,8 @@ const nodeGlobals = Object.fromEntries(
     'console',
     'fetch',
     'process',
+    'Response',
+    'setImmediate',
     'setTimeout',
   ].map((name) => [name, 'readonly']),
 );

@@ -4,7 +4,8 @@ import { resolve } from 'node:path';
 import { loadConfig } from './config.js';
 import { createLogger } from './log.js';
 import { UserError } from './errors.js';
-import { providerNames } from './providers/index.js';
+import { createFixtureFetch } from './providers/fixtures.js';
+import { getProvider, providerNames } from './providers/index.js';
 
 export { UserError };
 
@@ -41,7 +42,8 @@ function setOutput(env, name, value) {
   if (env.GITHUB_OUTPUT) appendFileSync(env.GITHUB_OUTPUT, `${name}=${value}\n`);
 }
 
-export async function run({ env = process.env, logger } = {}) {
+// `fetch` and `sleep` are injectable so tests never touch the network or wait.
+export async function run({ env = process.env, logger, fetch = globalThis.fetch, sleep } = {}) {
   const inputs = readInputs(env);
   logger.addSecret(inputs.token);
   if (inputs.secretsToken) logger.addSecret(inputs.secretsToken);
@@ -57,12 +59,21 @@ export async function run({ env = process.env, logger } = {}) {
     );
   }
 
-  const result = { fetched: 0, added: 0, removed: 0, kept: 0, changed: false };
-
   logger.info(
     `simple-media-client: provider=${inputs.provider} dry_run=${inputs.dryRun}` +
       (inputs.fixtureDir ? ' fixtures=on' : ''),
   );
+
+  const provider = getProvider(inputs.provider);
+  const { items, skipped } = await provider.fetchItems({
+    token: inputs.token,
+    limit: config.fetch.limit,
+    fetch: inputs.fixtureDir ? createFixtureFetch(resolve(workspace, inputs.fixtureDir)) : fetch,
+    sleep,
+  });
+  for (const { id, reason } of skipped) logger.warning(`Skipped ${inputs.provider} item ${id}: ${reason}.`);
+
+  const result = { fetched: items.length, added: 0, removed: 0, kept: 0, changed: false };
   logger.notice(
     `${inputs.provider}: fetched ${result.fetched}, +${result.added} new, ` +
       `-${result.removed} removed, ${result.kept} kept`,

@@ -1,0 +1,36 @@
+{
+  "data": [
+    {
+      "id": "17900000000000006",
+      "caption": "Late dinner with friends #foodie",
+      "media_type": "IMAGE",
+      "media_product_type": "FEED",
+      "media_url": "https://fixtures.invalid/images/photo.jpg",
+      "permalink": "https://www.instagram.com/p/FIXTURE006/",
+      "timestamp": "2026-10-29T18:22:10+0000"
+    },
+    {
+      "id": "17900000000000005",
+      "caption": "Boarding soon ✈️ #travel",
+      "media_type": "VIDEO",
+      "media_product_type": "REELS",
+      "media_url": "https://fixtures.invalid/videos/reel.mp4",
+      "thumbnail_url": "https://fixtures.invalid/images/reel.jpg",
+      "permalink": "https://www.instagram.com/reel/FIXTURE005/",
+      "timestamp": "2026-10-28T09:00:00+0000"
+    },
+    {
+      "id": "17900000000000004",
+      "caption": "Weekend in three pictures",
+      "media_type": "CAROUSEL_ALBUM",
+      "media_product_type": "FEED",
+      "media_url": "https://fixtures.invalid/images/carousel.jpg",
+      "permalink": "https://www.instagram.com/p/FIXTURE004/",
+      "timestamp": "2026-10-27T12:30:00+0000"
+    }
+  ],
+  "paging": {
+    "cursors": { "before": "PAGE1START", "after": "PAGE2" },
+    "next": "https://graph.instagram.com/v26.0/me/media?fields=id&limit=50&after=PAGE2&access_token=fixture-token-not-real"
+  }
+}

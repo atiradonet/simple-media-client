@@ -9050,15 +9050,17 @@ __nccwpck_require__.a(__webpack_module__, async (__webpack_handle_async_dependen
 /* harmony export */   Ko: () => (/* binding */ readInputs),
 /* harmony export */   eF: () => (/* binding */ run),
 /* harmony export */   iW: () => (/* binding */ main),
-/* harmony export */   yo: () => (/* reexport safe */ _errors_js__WEBPACK_IMPORTED_MODULE_6__.y)
+/* harmony export */   yo: () => (/* reexport safe */ _errors_js__WEBPACK_IMPORTED_MODULE_7__.y)
 /* harmony export */ });
 /* harmony import */ var node_fs__WEBPACK_IMPORTED_MODULE_0__ = __nccwpck_require__(3024);
 /* harmony import */ var node_url__WEBPACK_IMPORTED_MODULE_1__ = __nccwpck_require__(3136);
 /* harmony import */ var node_path__WEBPACK_IMPORTED_MODULE_2__ = __nccwpck_require__(6760);
 /* harmony import */ var _config_js__WEBPACK_IMPORTED_MODULE_3__ = __nccwpck_require__(6770);
 /* harmony import */ var _log_js__WEBPACK_IMPORTED_MODULE_4__ = __nccwpck_require__(7024);
-/* harmony import */ var _errors_js__WEBPACK_IMPORTED_MODULE_6__ = __nccwpck_require__(3247);
-/* harmony import */ var _providers_index_js__WEBPACK_IMPORTED_MODULE_5__ = __nccwpck_require__(3045);
+/* harmony import */ var _errors_js__WEBPACK_IMPORTED_MODULE_7__ = __nccwpck_require__(3247);
+/* harmony import */ var _providers_fixtures_js__WEBPACK_IMPORTED_MODULE_5__ = __nccwpck_require__(72);
+/* harmony import */ var _providers_index_js__WEBPACK_IMPORTED_MODULE_6__ = __nccwpck_require__(3045);
+
 
 
 
@@ -9071,14 +9073,14 @@ __nccwpck_require__.a(__webpack_module__, async (__webpack_handle_async_dependen
 
 function getInput(env, name, { required = false, fallback = '' } = {}) {
   const value = (env[`INPUT_${name.toUpperCase()}`] ?? '').trim();
-  if (required && value === '') throw new _errors_js__WEBPACK_IMPORTED_MODULE_6__/* .UserError */ .y(`Input "${name}" is required.`);
+  if (required && value === '') throw new _errors_js__WEBPACK_IMPORTED_MODULE_7__/* .UserError */ .y(`Input "${name}" is required.`);
   return value === '' ? fallback : value;
 }
 
 function parseBoolean(name, value) {
   if (value === 'true') return true;
   if (value === 'false') return false;
-  throw new _errors_js__WEBPACK_IMPORTED_MODULE_6__/* .UserError */ .y(`Input "${name}" must be "true" or "false", got "${value}".`);
+  throw new _errors_js__WEBPACK_IMPORTED_MODULE_7__/* .UserError */ .y(`Input "${name}" must be "true" or "false", got "${value}".`);
 }
 
 function readInputs(env) {
@@ -9090,9 +9092,9 @@ function readInputs(env) {
     secretsToken: getInput(env, 'secrets_token') || null,
     fixtureDir: getInput(env, 'fixture_dir') || null,
   };
-  if (!(0,_providers_index_js__WEBPACK_IMPORTED_MODULE_5__/* .providerNames */ .e)().includes(inputs.provider)) {
-    throw new _errors_js__WEBPACK_IMPORTED_MODULE_6__/* .UserError */ .y(
-      `Input "provider" must be one of: ${(0,_providers_index_js__WEBPACK_IMPORTED_MODULE_5__/* .providerNames */ .e)().join(', ')}. Got "${inputs.provider}".`,
+  if (!(0,_providers_index_js__WEBPACK_IMPORTED_MODULE_6__/* .providerNames */ .e)().includes(inputs.provider)) {
+    throw new _errors_js__WEBPACK_IMPORTED_MODULE_7__/* .UserError */ .y(
+      `Input "provider" must be one of: ${(0,_providers_index_js__WEBPACK_IMPORTED_MODULE_6__/* .providerNames */ .e)().join(', ')}. Got "${inputs.provider}".`,
     );
   }
   return inputs;
@@ -9102,7 +9104,8 @@ function setOutput(env, name, value) {
   if (env.GITHUB_OUTPUT) (0,node_fs__WEBPACK_IMPORTED_MODULE_0__.appendFileSync)(env.GITHUB_OUTPUT, `${name}=${value}\n`);
 }
 
-async function run({ env = process.env, logger } = {}) {
+// `fetch` and `sleep` are injectable so tests never touch the network or wait.
+async function run({ env = process.env, logger, fetch = globalThis.fetch, sleep } = {}) {
   const inputs = readInputs(env);
   logger.addSecret(inputs.token);
   if (inputs.secretsToken) logger.addSecret(inputs.secretsToken);
@@ -9110,20 +9113,29 @@ async function run({ env = process.env, logger } = {}) {
   const workspace = env.GITHUB_WORKSPACE || process.cwd();
   const config = (0,_config_js__WEBPACK_IMPORTED_MODULE_3__/* .loadConfig */ .Z9)((0,node_path__WEBPACK_IMPORTED_MODULE_2__.resolve)(workspace, inputs.config), {
     file: inputs.config,
-    providers: (0,_providers_index_js__WEBPACK_IMPORTED_MODULE_5__/* .providerNames */ .e)(),
+    providers: (0,_providers_index_js__WEBPACK_IMPORTED_MODULE_6__/* .providerNames */ .e)(),
   });
   if (config.provider && config.provider !== inputs.provider) {
-    throw new _errors_js__WEBPACK_IMPORTED_MODULE_6__/* .UserError */ .y(
+    throw new _errors_js__WEBPACK_IMPORTED_MODULE_7__/* .UserError */ .y(
       `${inputs.config}: provider is "${config.provider}" but the workflow input is "${inputs.provider}". Make them match.`,
     );
   }
-
-  const result = { fetched: 0, added: 0, removed: 0, kept: 0, changed: false };
 
   logger.info(
     `simple-media-client: provider=${inputs.provider} dry_run=${inputs.dryRun}` +
       (inputs.fixtureDir ? ' fixtures=on' : ''),
   );
+
+  const provider = (0,_providers_index_js__WEBPACK_IMPORTED_MODULE_6__/* .getProvider */ .s)(inputs.provider);
+  const { items, skipped } = await provider.fetchItems({
+    token: inputs.token,
+    limit: config.fetch.limit,
+    fetch: inputs.fixtureDir ? (0,_providers_fixtures_js__WEBPACK_IMPORTED_MODULE_5__/* .createFixtureFetch */ .A)((0,node_path__WEBPACK_IMPORTED_MODULE_2__.resolve)(workspace, inputs.fixtureDir)) : fetch,
+    sleep,
+  });
+  for (const { id, reason } of skipped) logger.warning(`Skipped ${inputs.provider} item ${id}: ${reason}.`);
+
+  const result = { fetched: items.length, added: 0, removed: 0, kept: 0, changed: false };
   logger.notice(
     `${inputs.provider}: fetched ${result.fetched}, +${result.added} new, ` +
       `-${result.removed} removed, ${result.kept} kept`,
@@ -9151,7 +9163,7 @@ async function main(env = process.env) {
   } catch (err) {
     // UserErrors carry a message written for the reader; anything else is a
     // bug, but we still avoid dumping a stack that could hold request data.
-    const message = err instanceof _errors_js__WEBPACK_IMPORTED_MODULE_6__/* .UserError */ .y ? err.message : `Unexpected error: ${err.message}`;
+    const message = err instanceof _errors_js__WEBPACK_IMPORTED_MODULE_7__/* .UserError */ .y ? err.message : `Unexpected error: ${err.message}`;
     logger.error(message);
     process.exitCode = 1;
   }
@@ -9173,27 +9185,284 @@ __webpack_async_result__();
 
 /***/ }),
 
+/***/ 72:
+/***/ ((__unused_webpack___webpack_module__, __webpack_exports__, __nccwpck_require__) => {
+
+
+// EXPORTS
+__nccwpck_require__.d(__webpack_exports__, {
+  A: () => (/* binding */ createFixtureFetch)
+});
+
+// UNUSED EXPORTS: FIXTURE_HOST
+
+;// CONCATENATED MODULE: external "node:fs/promises"
+const promises_namespaceObject = __WEBPACK_EXTERNAL_createRequire(import.meta.url)("node:fs/promises");
+// EXTERNAL MODULE: external "node:path"
+var external_node_path_ = __nccwpck_require__(6760);
+;// CONCATENATED MODULE: ./src/providers/fixtures.js
+// Fixture mode: a stand-in for fetch that answers from files on disk, used by
+// tests and the e2e workflow so no real token or network is needed.
+//
+//   https://<api host>/.../<name>?after=<cursor>  ->  <dir>/<name>-after-<cursor>.json
+//   https://<api host>/.../<name>                 ->  <dir>/<name>.json
+//   https://fixtures.invalid/<path>               ->  <dir>/<path>   (thumbnails)
+
+
+
+const FIXTURE_HOST = 'fixtures.invalid';
+const SAFE_SEGMENT = /^[A-Za-z0-9_-][A-Za-z0-9._-]*$/;
+
+function fixturePath(url) {
+  if (url.hostname === FIXTURE_HOST) return url.pathname.slice(1).split('/');
+  const base = url.pathname.split('/').pop();
+  const after = url.searchParams.get('after');
+  return [after ? `${base}-after-${after}.json` : `${base}.json`];
+}
+
+function createFixtureFetch(dir, { readFile = promises_namespaceObject.readFile } = {}) {
+  return async (input) => {
+    const segments = fixturePath(new URL(input));
+    // Fixture names come from URLs in fixture data; keep them inside `dir`.
+    if (!segments.every((segment) => SAFE_SEGMENT.test(segment))) {
+      return new Response('bad fixture path', { status: 400 });
+    }
+    try {
+      return new Response(await readFile((0,external_node_path_.join)(dir, ...segments)), { status: 200 });
+    } catch (err) {
+      if (err.code === 'ENOENT') return new Response('no such fixture', { status: 404 });
+      throw err;
+    }
+  };
+}
+
+
+/***/ }),
+
 /***/ 3045:
 /***/ ((__unused_webpack___webpack_module__, __webpack_exports__, __nccwpck_require__) => {
 
 
 // EXPORTS
 __nccwpck_require__.d(__webpack_exports__, {
+  s: () => (/* binding */ getProvider),
   e: () => (/* binding */ providerNames)
 });
-
-// UNUSED EXPORTS: getProvider
 
 // NAMESPACE OBJECT: ./src/providers/instagram.js
 var instagram_namespaceObject = {};
 __nccwpck_require__.r(instagram_namespaceObject);
 __nccwpck_require__.d(instagram_namespaceObject, {
-  name: () => (instagram_name)
+  API_HOST: () => (API_HOST),
+  API_VERSION: () => (API_VERSION),
+  FIELDS: () => (FIELDS),
+  RETRY_DELAYS_MS: () => (RETRY_DELAYS_MS),
+  TOKEN_MESSAGE: () => (TOKEN_MESSAGE),
+  fetchItems: () => (fetchItems),
+  mediaUrl: () => (mediaUrl),
+  name: () => (instagram_name),
+  normalizeMedia: () => (normalizeMedia),
+  requestJson: () => (requestJson)
 });
 
+// EXTERNAL MODULE: ./src/errors.js
+var errors = __nccwpck_require__(3247);
 ;// CONCATENATED MODULE: ./src/providers/instagram.js
-// Instagram adapter (Instagram API with Instagram Login). Implemented in M3.
+// Instagram adapter: Instagram API with Instagram Login (graph.instagram.com).
+// Field and error-code findings are in docs/decisions.md (section 17.1).
+
+
 const instagram_name = 'instagram';
+const API_HOST = 'graph.instagram.com';
+const API_VERSION = 'v26.0';
+const FIELDS = [
+  'id',
+  'caption',
+  'media_type',
+  'media_product_type',
+  'media_url',
+  'thumbnail_url',
+  'permalink',
+  'timestamp',
+];
+const RETRY_DELAYS_MS = [1000, 4000, 16000];
+const TOKEN_MESSAGE =
+  'Token expired or invalid; regenerate it and update the INSTAGRAM_TOKEN secret.';
+
+const TOKEN_ERROR_CODE = 190;
+// Graph reports throttling with these codes, often as HTTP 400 rather than 429.
+const THROTTLE_CODES = new Set([4, 17, 32, 613]);
+// IDs become file names, so anything outside this set is rejected.
+const ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
+const TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})$/;
+const PERMALINK_HOSTS = new Set(['www.instagram.com', 'instagram.com']);
+
+const defaultSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function malformed(detail) {
+  return new errors/* UserError */.y(`Instagram API returned a malformed response (${detail}). Nothing was written.`);
+}
+
+function mediaUrl(token, limit, after = null) {
+  const url = new URL(`https://${API_HOST}/${API_VERSION}/me/media`);
+  url.searchParams.set('fields', FIELDS.join(','));
+  url.searchParams.set('limit', String(limit));
+  if (after) url.searchParams.set('after', after);
+  url.searchParams.set('access_token', token);
+  return url.toString();
+}
+
+function parseJson(text) {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+}
+
+// One GET with the retry policy from the brief: 429, 5xx, throttling codes and
+// network failures retry after 1 s, 4 s, 16 s; anything else fails at once.
+// Never puts the URL or the raw body into an error: the URL holds the token.
+async function requestJson(url, { fetch, sleep = defaultSleep }) {
+  for (let attempt = 0; ; attempt++) {
+    let failure;
+    let response = null;
+    try {
+      response = await fetch(url);
+    } catch (err) {
+      failure = `network error: ${err.code ?? err.name}`;
+    }
+
+    if (response) {
+      const body = parseJson(await response.text());
+      const error = body?.error;
+      if (error?.code === TOKEN_ERROR_CODE) throw new errors/* UserError */.y(TOKEN_MESSAGE);
+      if (response.ok) {
+        if (body === null || typeof body !== 'object') throw malformed('body is not a JSON object');
+        return body;
+      }
+      failure = `HTTP ${response.status}${Number.isInteger(error?.code) ? `, code ${error.code}` : ''}`;
+      const retryable =
+        response.status === 429 || response.status >= 500 || THROTTLE_CODES.has(error?.code);
+      if (!retryable) {
+        const detail = typeof error?.message === 'string' ? `: ${error.message.slice(0, 200)}` : '';
+        throw new errors/* UserError */.y(`Instagram API request failed (${failure})${detail}`);
+      }
+    }
+
+    if (attempt >= RETRY_DELAYS_MS.length) {
+      throw new errors/* UserError */.y(`Instagram API request failed after ${attempt + 1} attempts (${failure}).`);
+    }
+    await sleep(RETRY_DELAYS_MS[attempt]);
+  }
+}
+
+function mapType(raw) {
+  switch (raw.media_type) {
+    case 'IMAGE':
+      return 'photo';
+    case 'CAROUSEL_ALBUM':
+      return 'carousel';
+    case 'VIDEO':
+      // media_product_type may be missing with Instagram Login (decisions.md 17.1);
+      // the permalink path still tells a Reel apart.
+      if (raw.media_product_type === 'REELS') return 'reel';
+      if (raw.media_product_type === undefined && new URL(raw.permalink).pathname.startsWith('/reel/')) {
+        return 'reel';
+      }
+      return 'video';
+    default:
+      return null;
+  }
+}
+
+function isHttps(value) {
+  if (typeof value !== 'string') return false;
+  try {
+    return new URL(value).protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+function isInstagramPermalink(value) {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' && PERMALINK_HOSTS.has(url.hostname);
+  } catch {
+    return false;
+  }
+}
+
+// Returns { item } for a usable post, { skip } with a reason for one we leave
+// out, and throws when the entry is not shaped like Instagram media at all.
+function normalizeMedia(raw) {
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+    throw malformed('a media entry is not an object');
+  }
+  for (const field of ['id', 'media_type', 'permalink', 'timestamp']) {
+    if (typeof raw[field] !== 'string' || raw[field] === '') {
+      throw malformed(`a media entry has no ${field}`);
+    }
+  }
+  if (!TIMESTAMP.test(raw.timestamp) || Number.isNaN(Date.parse(raw.timestamp))) {
+    throw malformed('a media entry has an invalid timestamp');
+  }
+
+  const id = raw.id;
+  if (!ID_PATTERN.test(id)) return { skip: 'id has characters that are not allowed in a file name' };
+  if (!isInstagramPermalink(raw.permalink)) return { skip: 'permalink is not an https://www.instagram.com/ URL' };
+  if (raw.media_product_type === 'STORY') return { skip: 'stories are not part of the feed' };
+
+  const type = mapType(raw);
+  if (!type) return { skip: `unsupported media type ${JSON.stringify(raw.media_type).slice(0, 40)}` };
+
+  // Never fall back to media_url for videos: that is the video file itself.
+  const thumbnail = type === 'video' || type === 'reel' ? raw.thumbnail_url : raw.media_url;
+  if (!isHttps(thumbnail)) return { skip: 'no thumbnail URL available' };
+
+  return {
+    item: {
+      id,
+      provider: instagram_name,
+      permalink: raw.permalink,
+      caption: typeof raw.caption === 'string' ? raw.caption : '',
+      timestamp: new Date(raw.timestamp).toISOString(),
+      type,
+      thumbnail_url: thumbnail,
+    },
+  };
+}
+
+// Fetch up to `limit` newest posts. Returns normalized items newest-first as
+// the API gives them, plus the entries that were skipped and why.
+async function fetchItems({ token, limit, fetch = globalThis.fetch, sleep = defaultSleep }) {
+  const items = [];
+  const skipped = [];
+  const seen = new Set();
+  let url = mediaUrl(token, limit);
+
+  while (url) {
+    const body = await requestJson(url, { fetch, sleep });
+    if (!Array.isArray(body.data)) throw malformed('no data list');
+
+    for (const raw of body.data) {
+      if (seen.size >= limit) break;
+      const result = normalizeMedia(raw);
+      if (seen.has(raw.id)) continue;
+      seen.add(raw.id);
+      if (result.item) items.push(result.item);
+      else skipped.push({ id: raw.id.slice(0, 64), reason: result.skip });
+    }
+
+    // Build the next URL from the cursor ourselves instead of following
+    // paging.next, so the token only ever goes to a URL we constructed.
+    const after = body.paging?.cursors?.after;
+    const hasNext = typeof body.paging?.next === 'string' && typeof after === 'string' && after !== '';
+    url = hasNext && seen.size < limit && body.data.length > 0 ? mediaUrl(token, limit, after) : null;
+  }
+  return { items, skipped };
+}
 
 ;// CONCATENATED MODULE: ./src/providers/index.js
 
