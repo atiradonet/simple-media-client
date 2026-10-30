@@ -14,8 +14,8 @@ export const THUMB_FORMATS = ['webp', 'jpeg'];
 export const DEFAULT_THEME = {
   paper: '#f3ede2',
   ink: '#1c1814',
-  muted: '#7a6f63',
-  accent: '#d9542b',
+  muted: '#6b6157',
+  accent: '#b5441d',
   paper_dark: '#14110f',
   ink_dark: '#f1e9dc',
   muted_dark: '#8f8374',

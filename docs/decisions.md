@@ -67,12 +67,15 @@ Decision: the action does not install packages itself. Installing them would add
 
 Cost: roughly 20–40 s of runner time per run, free on a public repo. Preflight looks for `magick` (ImageMagick 7), then `convert` (ImageMagick 6, which Ubuntu ships). It fails with that exact install line if neither is found, and falls back to JPEG if the WebP coder is missing.
 
+**Confirmed on a real runner (e2e, 2026-10-30):** `apt-get install imagemagick` gives ImageMagick 6.9.12 with a WebP encoder (`WEBP* rw+`, libwebp 1.3.2).
+
 ### Thumbnail choices (M4)
 
 - **Shrink only, never enlarge** (`-resize 480x>`). A source narrower than `thumbnails.width` keeps its width; upscaling adds bytes and blur.
 - **Only JPEG, PNG and WebP inputs**, detected from magic bytes. The decoder is named explicitly (`jpeg:file[0]`), so a hostile download cannot reach ImageMagick's SVG, MSL or text decoders. Anything else fails the item.
 - **Download cap: 15 MB** (declared `Content-Length` and actual bytes). One attempt; a failed download fails the run, and the next daily run tries again.
-- **`max_bytes`** applies to the 480 px image: quality steps down by 10 to a floor of 30, then the item fails. The 96 px image uses the configured quality.
+- **`max_bytes`** applies to the 480 px image: quality steps down by 10 to a floor of 30, then the item fails. For WebP, each retry also passes `-define webp:target-size=<95% of max_bytes>`. The 96 px image uses the configured quality.
+- **Finding (2026-10-30, ubuntu-24.04 runner, ImageMagick 6.9.12 + libwebp 1.3.2): `-quality` has no effect on WebP output.** Quality 75 and 30 produced byte-identical files, with JPEG or PNG input, before or after the input, and through a pipe. JPEG quality works normally. `-define webp:target-size=N` does work (8,000 requested, 7,768 delivered), so `max_bytes` is enforced through it. Consequence: on ImageMagick 6, `thumbnails.quality` does not affect WebP; on ImageMagick 7 (local macOS) it does. The README must say so.
 - **`-auto-orient` before `-strip`**, so rotation survives metadata removal.
 - No `-limit` flags: their units differ between ImageMagick 6 and 7. Ubuntu's `policy.xml` limits plus the 15 MB cap bound memory use.
 - Output is byte-identical for identical input (checked by test), which keeps reruns diff-free.
@@ -92,6 +95,19 @@ Source: Instagram Platform overview.
 ## 17.7 Scheduled-workflow inactivity rule
 
 Source: GitHub docs, "Disabling and enabling a workflow". Scheduled workflows in public repos are disabled after 60 days without repository activity. The docs don't define activity. Per the brief, we don't rely on bot commits counting. The README documents `gh workflow enable`.
+
+## Rendering choices (M5)
+
+- **Default light colors darkened for WCAG AA.** The brief's light `muted` (`#7a6f63`, 4.21:1 on paper) and `accent` (`#d9542b`, 3.43:1) fall short of 4.5:1 for normal text, and the brief requires AA for the defaults. New defaults keep the hues: `muted #6b6157` (5.19:1) and `accent #b5441d` (4.73:1). Dark-mode defaults already pass and are unchanged. A test checks all six text colors.
+- **CSP meta on every page:** `default-src 'none'; img-src data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'`. The browser then enforces self-containment even if an escaping bug slipped through. Also `referrer: no-referrer`.
+- **Other people's `@handles` are removed from captions** before display (section 3: never publish other people's usernames). Email addresses stay.
+- **Dates render as ISO `yyyy-mm-dd` (UTC).** `Intl` output depends on the ICU data in the Node version, which would break byte-identical output across runner upgrades.
+- **Titles:** first non-empty caption line without hashtags, cut at a word near 80 characters; empty → "Photo from 2026-10-27" (Reel, Video, Photo set). Page `<title>` adds the date to keep titles unique.
+- **Index thumbnails use `alt=""`.** They sit inside a link whose text is the post title, so a non-empty alt would make screen readers say the title twice. Item pages use the caption excerpt, or "Photo" / "Video thumbnail".
+- **Item pages are rendered once,** when the item is ingested. The 480 px image lives only inside that page, so a later theme or site-title change restyles `index.html` and the legal pages, but not existing item pages. To restyle everything, delete the feed folder and let the next run backfill.
+- **Category order on the index:** config categories in file order, then the fallback, then categories that only older items still carry (alphabetical). Empty groups are not shown.
+- **html-validate:** `html-validate:recommended`, with `doctype-style` set to lowercase (the brief specifies `<!doctype html>`) and `long-title` off (an SEO preference, not part of the HTML standard).
+- **Size budget:** an item page with a thumbnail at `max_bytes` (40,000) and a 2,200-character plain caption is about 59 KB, under the 60 KB budget. A caption made almost entirely of `&` or `<` (each escaped to 4–5 characters) can exceed it. Accepted as an edge case.
 
 ## Other choices
 

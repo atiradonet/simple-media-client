@@ -122,6 +122,12 @@ test('encodeArgs names the decoder, orients, shrinks only, strips and writes to 
   ]);
 });
 
+test('encodeArgs adds a libwebp target size for WebP only', () => {
+  const base = { input: 'in', coder: 'jpeg', width: 480, quality: 65, targetSize: 38000 };
+  assert.deepEqual(encodeArgs({ ...base, format: 'webp' }).slice(-3), ['-define', 'webp:target-size=38000', 'webp:-']);
+  assert.ok(!encodeArgs({ ...base, format: 'jpeg' }).includes('-define'));
+});
+
 test('shell safety: every subprocess call gets a command and an argument array', async (t) => {
   const { execFile, calls } = stubExecFile((command, args) => (args[0] === '-version' ? 'ImageMagick' : 'x'.repeat(100)));
   const stubTool = await preflight({ execFile, format: 'jpeg' });
@@ -154,6 +160,9 @@ test('max_bytes: lowers quality in steps of 10 down to the floor, then fails', a
   });
   const qualities = calls.map((c) => c.args[c.args.indexOf('-quality') + 1]);
   assert.deepEqual(qualities, ['75', '65', '55', '45', '35', '30']);
+  // The first attempt uses quality alone; every retry also sets the WebP target size.
+  const targets = calls.map((c) => c.args.find((a) => a.startsWith('webp:target-size=')) ?? null);
+  assert.deepEqual(targets, [null, ...Array(5).fill('webp:target-size=19000')]);
 });
 
 test('max_bytes: stops at the first quality that fits; tiny uses the configured quality', async (t) => {
@@ -163,7 +172,7 @@ test('max_bytes: stops at the first quality that fits; tiny uses the configured 
     execFile, fetch: createFixtureFetch(FIXTURES), tempRoot: tempDir(t),
   });
   const result = await thumbnail(item('photo.jpg'));
-  const steps = calls.map((c) => [c.args[3], c.args[c.args.indexOf('-quality') + 1]]);
+  const steps = calls.map((c) => [c.args[3], c.args[6]]);
   assert.deepEqual(steps, [['480x>', '75'], ['480x>', '65'], ['480x>', '55'], ['96x>', '75']]);
   assert.equal(result.bytes, 55000 + 75000);
 });
@@ -252,24 +261,20 @@ test('the same input produces byte-identical output', needsMagick, async (t) => 
   assert.deepEqual(second, first);
 });
 
-test('real max_bytes: a noisy image is re-encoded smaller to fit, or fails when it cannot', needsMagick, async (t) => {
+test('real max_bytes: a large image is re-encoded smaller to fit, or fails when it cannot', needsMagick, async (t) => {
   const dir = tempDir(t);
   execFileSync(tool.command, ['-seed', '7', '-size', '1080x1080', 'plasma:', '-quality', '95', join(dir, 'noise.jpg')]);
   const fetch = createFixtureFetch(dir);
   const noise = { id: 'noise', provider: 'instagram', thumbnail_url: 'https://fixtures.invalid/noise.jpg' };
 
-  // Measure the 480px size at the starting quality and at the floor.
-  const measure = async (quality) => {
-    const thumbnail = createThumbnailer({ settings: { ...SETTINGS, quality, max_bytes: 1e6 }, tool, fetch, tempRoot: dir });
-    return decode((await thumbnail(noise)).full).length;
-  };
-  const atStart = await measure(75);
-  const atFloor = await measure(30);
-  assert.ok(atFloor < atStart, `expected quality to matter: ${atFloor} vs ${atStart}`);
-
-  const cap = Math.floor((atStart + atFloor) / 2);
+  // Uncapped size first; then a cap well below it must still be met. This
+  // holds on ImageMagick 6, which ignores -quality for WebP, via target size.
+  const uncapped = createThumbnailer({ settings: { ...SETTINGS, max_bytes: 1e6 }, tool, fetch, tempRoot: dir });
+  const natural = decode((await uncapped(noise)).full).length;
+  const cap = Math.floor(natural * 0.6);
   const fits = createThumbnailer({ settings: { ...SETTINGS, max_bytes: cap }, tool, fetch, tempRoot: dir });
-  assert.ok(decode((await fits(noise)).full).length <= cap);
+  const fitted = decode((await fits(noise)).full).length;
+  assert.ok(fitted <= cap, `${fitted} bytes, cap ${cap} (uncapped ${natural})`);
 
   const impossible = createThumbnailer({ settings: { ...SETTINGS, max_bytes: 1000 }, tool, fetch, tempRoot: dir });
   await assert.rejects(impossible(noise), { message: /^Thumbnail for instagram item noise failed: the 480px image is \d+ bytes at quality 30, over thumbnails\.max_bytes \(1000\)\./ });

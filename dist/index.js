@@ -8636,8 +8636,8 @@ const THUMB_FORMATS = ['webp', 'jpeg'];
 const DEFAULT_THEME = {
   paper: '#f3ede2',
   ink: '#1c1814',
-  muted: '#7a6f63',
-  accent: '#d9542b',
+  muted: '#6b6157',
+  accent: '#b5441d',
   paper_dark: '#14110f',
   ink_dark: '#f1e9dc',
   muted_dark: '#8f8374',
@@ -9511,7 +9511,7 @@ __nccwpck_require__.d(__webpack_exports__, {
   Mz: () => (/* binding */ preflight)
 });
 
-// UNUSED EXPORTS: INSTALL_HINT, MAX_DOWNLOAD_BYTES, QUALITY_FLOOR, QUALITY_STEP, detectCoder, encodeArgs, supportsWebpWrite
+// UNUSED EXPORTS: INSTALL_HINT, MAX_DOWNLOAD_BYTES, QUALITY_FLOOR, QUALITY_STEP, TARGET_SIZE_RATIO, detectCoder, encodeArgs, supportsWebpWrite
 
 ;// CONCATENATED MODULE: external "node:child_process"
 const external_node_child_process_namespaceObject = __WEBPACK_EXTERNAL_createRequire(import.meta.url)("node:child_process");
@@ -9538,6 +9538,10 @@ const INSTALL_HINT =
 const MAX_DOWNLOAD_BYTES = 15 * 1024 * 1024;
 const QUALITY_STEP = 10;
 const QUALITY_FLOOR = 30;
+// ImageMagick 6 (what Ubuntu ships) ignores -quality for WebP, so for WebP the
+// retries also ask libwebp for a target size a little under the cap.
+// See docs/decisions.md, "Thumbnail choices".
+const TARGET_SIZE_RATIO = 0.95;
 const EXEC_OPTIONS = { encoding: 'buffer', maxBuffer: 32 * 1024 * 1024, timeout: 60_000 };
 const MIME = { webp: 'image/webp', jpeg: 'image/jpeg' };
 
@@ -9601,7 +9605,7 @@ async function preflight({ execFile = external_node_child_process_namespaceObjec
   return { command, format: output };
 }
 
-function encodeArgs({ input, coder, width, format, quality }) {
+function encodeArgs({ input, coder, width, format, quality, targetSize = null }) {
   return [
     `${coder}:${input}[0]`, // explicit decoder; first frame only
     '-auto-orient', // apply EXIF rotation before -strip removes it
@@ -9610,6 +9614,7 @@ function encodeArgs({ input, coder, width, format, quality }) {
     '-strip',
     '-quality',
     String(quality),
+    ...(targetSize && format === 'webp' ? ['-define', `webp:target-size=${targetSize}`] : []),
     `${format}:-`,
   ];
 }
@@ -9637,8 +9642,8 @@ const dataUri = (format, bytes) => `data:${MIME[format]};base64,${bytes.toString
 function createThumbnailer({ settings, tool, fetch = globalThis.fetch, execFile = external_node_child_process_namespaceObject.execFile, tempRoot = (0,external_node_os_namespaceObject.tmpdir)() }) {
   const { format, command } = tool;
 
-  async function encode(input, coder, width, quality) {
-    return exec(execFile, command, encodeArgs({ input, coder, width, format, quality }));
+  async function encode(input, coder, width, quality, targetSize) {
+    return exec(execFile, command, encodeArgs({ input, coder, width, format, quality, targetSize }));
   }
 
   return async function thumbnail(item) {
@@ -9663,9 +9668,10 @@ function createThumbnailer({ settings, tool, fetch = globalThis.fetch, execFile 
         throw fail(`ImageMagick could not convert it (${err.stderr || err.code || err.message})`);
       });
       // Re-encode at lower quality until it fits, down to a floor.
+      const targetSize = Math.floor(settings.max_bytes * TARGET_SIZE_RATIO);
       while (full.length > settings.max_bytes && quality > QUALITY_FLOOR) {
         quality = Math.max(QUALITY_FLOOR, quality - QUALITY_STEP);
-        full = await encode(input, coder, settings.width, quality);
+        full = await encode(input, coder, settings.width, quality, targetSize);
       }
       if (full.length > settings.max_bytes) {
         throw fail(

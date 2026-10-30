@@ -12,6 +12,10 @@ export const INSTALL_HINT =
 export const MAX_DOWNLOAD_BYTES = 15 * 1024 * 1024;
 export const QUALITY_STEP = 10;
 export const QUALITY_FLOOR = 30;
+// ImageMagick 6 (what Ubuntu ships) ignores -quality for WebP, so for WebP the
+// retries also ask libwebp for a target size a little under the cap.
+// See docs/decisions.md, "Thumbnail choices".
+export const TARGET_SIZE_RATIO = 0.95;
 const EXEC_OPTIONS = { encoding: 'buffer', maxBuffer: 32 * 1024 * 1024, timeout: 60_000 };
 const MIME = { webp: 'image/webp', jpeg: 'image/jpeg' };
 
@@ -75,7 +79,7 @@ export async function preflight({ execFile = nodeExecFile, format = 'webp' } = {
   return { command, format: output };
 }
 
-export function encodeArgs({ input, coder, width, format, quality }) {
+export function encodeArgs({ input, coder, width, format, quality, targetSize = null }) {
   return [
     `${coder}:${input}[0]`, // explicit decoder; first frame only
     '-auto-orient', // apply EXIF rotation before -strip removes it
@@ -84,6 +88,7 @@ export function encodeArgs({ input, coder, width, format, quality }) {
     '-strip',
     '-quality',
     String(quality),
+    ...(targetSize && format === 'webp' ? ['-define', `webp:target-size=${targetSize}`] : []),
     `${format}:-`,
   ];
 }
@@ -111,8 +116,8 @@ const dataUri = (format, bytes) => `data:${MIME[format]};base64,${bytes.toString
 export function createThumbnailer({ settings, tool, fetch = globalThis.fetch, execFile = nodeExecFile, tempRoot = tmpdir() }) {
   const { format, command } = tool;
 
-  async function encode(input, coder, width, quality) {
-    return exec(execFile, command, encodeArgs({ input, coder, width, format, quality }));
+  async function encode(input, coder, width, quality, targetSize) {
+    return exec(execFile, command, encodeArgs({ input, coder, width, format, quality, targetSize }));
   }
 
   return async function thumbnail(item) {
@@ -137,9 +142,10 @@ export function createThumbnailer({ settings, tool, fetch = globalThis.fetch, ex
         throw fail(`ImageMagick could not convert it (${err.stderr || err.code || err.message})`);
       });
       // Re-encode at lower quality until it fits, down to a floor.
+      const targetSize = Math.floor(settings.max_bytes * TARGET_SIZE_RATIO);
       while (full.length > settings.max_bytes && quality > QUALITY_FLOOR) {
         quality = Math.max(QUALITY_FLOOR, quality - QUALITY_STEP);
-        full = await encode(input, coder, settings.width, quality);
+        full = await encode(input, coder, settings.width, quality, targetSize);
       }
       if (full.length > settings.max_bytes) {
         throw fail(
