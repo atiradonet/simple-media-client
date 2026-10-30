@@ -1,0 +1,38 @@
+# Copy to .github/workflows/feed.yml in your site repo.
+name: feed
+on:
+  schedule:
+    - cron: "17 6 * * *"      # daily, UTC; avoid minute 0
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  pages: write                # lets the last step request a Pages build
+
+concurrency:
+  group: feed
+  cancel-in-progress: false
+
+jobs:
+  feed:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # ubuntu-latest does not ship ImageMagick; the action needs it for thumbnails.
+      - run: sudo apt-get update && sudo apt-get install -y imagemagick
+      - id: feed
+        uses: atiradonet/simple-media-client@v1
+        with:
+          provider: instagram
+          token: ${{ secrets.INSTAGRAM_TOKEN }}
+          dry_run: ${{ inputs.dry_run || 'false' }}
+      # Pushes made with GITHUB_TOKEN do not trigger a Pages build on their own.
+      # This step is for Pages set to "Deploy from a branch".
+      - if: steps.feed.outputs.changed == 'true'
+        run: gh api -X POST "repos/${{ github.repository }}/pages/builds"
+        env:
+          GH_TOKEN: ${{ github.token }}

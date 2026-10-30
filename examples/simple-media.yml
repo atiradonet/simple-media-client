@@ -1,0 +1,46 @@
+provider: instagram
+
+site:
+  title: "Brini Bruni"
+  description: "What Brini is up to."
+  language: en
+  profile_url: "https://www.instagram.com/example/"
+  contact_email: "hello@brinibruni.com"      # shown on the privacy and deletion pages
+  theme:
+    paper: "#f3ede2"
+    ink: "#1c1814"
+    muted: "#7a6f63"
+    accent: "#d9542b"
+    paper_dark: "#14110f"
+    ink_dark: "#f1e9dc"
+    muted_dark: "#8f8374"
+    accent_dark: "#f0714a"
+
+output:
+  dir: feed
+  max_items: 200
+
+fetch:
+  limit: 50          # newest items requested per run
+  backfill: 20       # items written when index.json is empty
+
+thumbnails:
+  width: 480
+  tiny_width: 96
+  format: webp       # fallback: jpeg
+  quality: 75
+  max_bytes: 40000   # per 480px image; re-encode smaller until it fits
+
+fallback: Everyday
+
+categories:
+  - name: Travel
+    hashtags: [travel, wanderlust]
+    keywords: [airport, flight, hotel, road trip]
+
+  - name: Food
+    hashtags: [foodie, recipe]
+    keywords: [dinner, brunch, coffee]
+
+  - name: Video
+    media: [reel, video]

@@ -1,0 +1,36 @@
+name: simple-media-client
+description: Turn an Instagram account's posts into a small, self-contained static feed for GitHub Pages.
+author: atiradonet
+branding:
+  icon: rss
+  color: orange
+
+inputs:
+  provider:
+    description: Provider adapter to use. `instagram` in v1.
+    required: true
+  token:
+    description: Provider access token. Masked in logs.
+    required: true
+  config:
+    description: Path to the config file in the site repo.
+    required: false
+    default: simple-media.yml
+  dry_run:
+    description: Fetch, classify, and render in memory; print a summary; write nothing; no commit.
+    required: false
+    default: 'false'
+  secrets_token:
+    description: Fine-grained PAT with Secrets write on this repo, used only to store a refreshed access token.
+    required: false
+  fixture_dir:
+    description: Test use only. Read provider responses from this directory instead of the network.
+    required: false
+
+outputs:
+  changed:
+    description: '`true` when the run committed changes, else `false`. Use it to trigger a Pages build.'
+
+runs:
+  using: node24
+  main: dist/index.js

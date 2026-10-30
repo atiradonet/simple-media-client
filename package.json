@@ -1,0 +1,33 @@
+{
+  "name": "simple-media-client",
+  "version": "0.1.0",
+  "private": true,
+  "description": "GitHub Action that turns an Instagram account's posts into a small, self-contained static feed for GitHub Pages.",
+  "type": "module",
+  "main": "src/main.js",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "build": "rm -rf dist && ncc build src/main.js -o dist --license licenses.txt",
+    "lint": "eslint .",
+    "test": "node --test \"test/**/*.test.js\"",
+    "coverage": "c8 --all --include src --check-coverage --lines 90 --reporter=text --reporter=lcov node --test \"test/**/*.test.js\"",
+    "golden:update": "node scripts/update-goldens.js"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/atiradonet/simple-media-client.git"
+  },
+  "dependencies": {
+    "yaml": "2.9.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@vercel/ncc": "0.45.0",
+    "c8": "12.0.0",
+    "eslint": "10.13.0",
+    "html-validate": "11.17.0"
+  }
+}

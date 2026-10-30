@@ -1,0 +1,34 @@
+name: e2e
+
+# Runs the action from this repo on a real runner with fixture responses, so no
+# real token is needed. Grows with each milestone (thumbnails in M4, commit and
+# push in M6).
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install ImageMagick
+        run: sudo apt-get update && sudo apt-get install -y imagemagick
+      - name: Report ImageMagick WebP support
+        run: |
+          (command -v magick || command -v convert)
+          convert -list format | grep -i webp || echo "::warning::WebP coder not available"
+      - name: Run action (dry run, fixtures)
+        id: feed
+        uses: ./
+        with:
+          provider: instagram
+          token: fixture-token-not-real
+          dry_run: 'true'
+          fixture_dir: test/fixtures/instagram
+      - name: Check outputs
+        run: test "${{ steps.feed.outputs.changed }}" = "false"
