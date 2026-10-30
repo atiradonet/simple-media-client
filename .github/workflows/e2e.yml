@@ -29,6 +29,7 @@ jobs:
           provider: instagram
           token: fixture-token-not-real
           dry_run: 'true'
+          config: examples/simple-media.yml
           fixture_dir: test/fixtures/instagram
       - name: Check outputs
         run: test "${{ steps.feed.outputs.changed }}" = "false"

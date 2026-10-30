@@ -1,11 +1,12 @@
 import { appendFileSync, realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { resolve } from 'node:path';
+import { loadConfig } from './config.js';
 import { createLogger } from './log.js';
+import { UserError } from './errors.js';
 import { providerNames } from './providers/index.js';
 
-// Thrown for problems the user can fix (bad input, bad config). main() prints
-// the message alone, without a stack trace.
-export class UserError extends Error {}
+export { UserError };
 
 function getInput(env, name, { required = false, fallback = '' } = {}) {
   const value = (env[`INPUT_${name.toUpperCase()}`] ?? '').trim();
@@ -44,6 +45,17 @@ export async function run({ env = process.env, logger } = {}) {
   const inputs = readInputs(env);
   logger.addSecret(inputs.token);
   if (inputs.secretsToken) logger.addSecret(inputs.secretsToken);
+
+  const workspace = env.GITHUB_WORKSPACE || process.cwd();
+  const config = loadConfig(resolve(workspace, inputs.config), {
+    file: inputs.config,
+    providers: providerNames(),
+  });
+  if (config.provider && config.provider !== inputs.provider) {
+    throw new UserError(
+      `${inputs.config}: provider is "${config.provider}" but the workflow input is "${inputs.provider}". Make them match.`,
+    );
+  }
 
   const result = { fetched: 0, added: 0, removed: 0, kept: 0, changed: false };
 

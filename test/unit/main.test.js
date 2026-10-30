@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { copyFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { main, readInputs, run, UserError } from '../../src/main.js';
 import { actionEnv, captureLogger, FAKE_TOKEN, readText, tempDir } from '../helpers.js';
@@ -17,7 +18,7 @@ test('readInputs applies defaults', () => {
 
 test('readInputs rejects a missing token', () => {
   assert.throws(() => readInputs(actionEnv({ token: '  ' })), {
-    name: 'Error',
+    name: 'UserError',
     message: 'Input "token" is required.',
   });
 });
@@ -36,12 +37,40 @@ test('readInputs rejects a non-boolean dry_run', () => {
   );
 });
 
-test('run prints a summary, writes the step summary and the changed output', async (t) => {
+const MINIMAL_CONFIG = join(import.meta.dirname, '../fixtures/config/minimal.yml');
+
+function workspace(t) {
   const dir = tempDir(t);
+  copyFileSync(MINIMAL_CONFIG, join(dir, 'simple-media.yml'));
+  return dir;
+}
+
+test('run fails on an invalid config before doing anything else', async (t) => {
+  const dir = tempDir(t);
+  writeFileSync(join(dir, 'simple-media.yml'), 'fallback: X\n');
+  const { logger } = captureLogger();
+  await assert.rejects(run({ env: actionEnv({}, { GITHUB_WORKSPACE: dir }), logger }), {
+    name: 'ConfigError',
+    message: 'simple-media.yml: site: is required (with at least title and contact_email)',
+  });
+});
+
+test('run accepts a matching config provider and rejects an unknown one', async (t) => {
+  const dir = tempDir(t);
+  writeFileSync(join(dir, 'feed.yml'), 'provider: instagram\nsite:\n  title: T\n  contact_email: a@b.co\nfallback: X\n');
+  const { logger } = captureLogger();
+  const env = actionEnv({ config: 'feed.yml' }, { GITHUB_WORKSPACE: dir });
+  await assert.doesNotReject(run({ env, logger }));
+  writeFileSync(join(dir, 'feed.yml'), 'provider: tiktok\nsite:\n  title: T\n  contact_email: a@b.co\nfallback: X\n');
+  await assert.rejects(run({ env, logger }), { name: 'ConfigError' });
+});
+
+test('run prints a summary, writes the step summary and the changed output', async (t) => {
+  const dir = workspace(t);
   const summaryPath = join(dir, 'summary.md');
   const outputPath = join(dir, 'output.txt');
   const { logger, all } = captureLogger({ summaryPath });
-  const env = actionEnv({ dry_run: 'true', fixture_dir: 'x' }, { GITHUB_OUTPUT: outputPath });
+  const env = actionEnv({ dry_run: 'true', fixture_dir: 'x' }, { GITHUB_OUTPUT: outputPath, GITHUB_WORKSPACE: dir });
 
   const result = await run({ env, logger });
 
