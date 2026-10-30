@@ -15,6 +15,13 @@ module.exports = __WEBPACK_EXTERNAL_createRequire(import.meta.url)("node:fs");
 
 /***/ }),
 
+/***/ 1455:
+/***/ ((module) => {
+
+module.exports = __WEBPACK_EXTERNAL_createRequire(import.meta.url)("node:fs/promises");
+
+/***/ }),
+
 /***/ 6760:
 /***/ ((module) => {
 
@@ -9050,16 +9057,18 @@ __nccwpck_require__.a(__webpack_module__, async (__webpack_handle_async_dependen
 /* harmony export */   Ko: () => (/* binding */ readInputs),
 /* harmony export */   eF: () => (/* binding */ run),
 /* harmony export */   iW: () => (/* binding */ main),
-/* harmony export */   yo: () => (/* reexport safe */ _errors_js__WEBPACK_IMPORTED_MODULE_7__.y)
+/* harmony export */   yo: () => (/* reexport safe */ _errors_js__WEBPACK_IMPORTED_MODULE_8__.y)
 /* harmony export */ });
 /* harmony import */ var node_fs__WEBPACK_IMPORTED_MODULE_0__ = __nccwpck_require__(3024);
 /* harmony import */ var node_url__WEBPACK_IMPORTED_MODULE_1__ = __nccwpck_require__(3136);
 /* harmony import */ var node_path__WEBPACK_IMPORTED_MODULE_2__ = __nccwpck_require__(6760);
 /* harmony import */ var _config_js__WEBPACK_IMPORTED_MODULE_3__ = __nccwpck_require__(6770);
 /* harmony import */ var _log_js__WEBPACK_IMPORTED_MODULE_4__ = __nccwpck_require__(7024);
-/* harmony import */ var _errors_js__WEBPACK_IMPORTED_MODULE_7__ = __nccwpck_require__(3247);
-/* harmony import */ var _providers_fixtures_js__WEBPACK_IMPORTED_MODULE_5__ = __nccwpck_require__(72);
+/* harmony import */ var _errors_js__WEBPACK_IMPORTED_MODULE_8__ = __nccwpck_require__(3247);
+/* harmony import */ var _providers_fixtures_js__WEBPACK_IMPORTED_MODULE_5__ = __nccwpck_require__(8765);
 /* harmony import */ var _providers_index_js__WEBPACK_IMPORTED_MODULE_6__ = __nccwpck_require__(3045);
+/* harmony import */ var _thumbs_js__WEBPACK_IMPORTED_MODULE_7__ = __nccwpck_require__(2941);
+
 
 
 
@@ -9073,14 +9082,14 @@ __nccwpck_require__.a(__webpack_module__, async (__webpack_handle_async_dependen
 
 function getInput(env, name, { required = false, fallback = '' } = {}) {
   const value = (env[`INPUT_${name.toUpperCase()}`] ?? '').trim();
-  if (required && value === '') throw new _errors_js__WEBPACK_IMPORTED_MODULE_7__/* .UserError */ .y(`Input "${name}" is required.`);
+  if (required && value === '') throw new _errors_js__WEBPACK_IMPORTED_MODULE_8__/* .UserError */ .y(`Input "${name}" is required.`);
   return value === '' ? fallback : value;
 }
 
 function parseBoolean(name, value) {
   if (value === 'true') return true;
   if (value === 'false') return false;
-  throw new _errors_js__WEBPACK_IMPORTED_MODULE_7__/* .UserError */ .y(`Input "${name}" must be "true" or "false", got "${value}".`);
+  throw new _errors_js__WEBPACK_IMPORTED_MODULE_8__/* .UserError */ .y(`Input "${name}" must be "true" or "false", got "${value}".`);
 }
 
 function readInputs(env) {
@@ -9093,7 +9102,7 @@ function readInputs(env) {
     fixtureDir: getInput(env, 'fixture_dir') || null,
   };
   if (!(0,_providers_index_js__WEBPACK_IMPORTED_MODULE_6__/* .providerNames */ .e)().includes(inputs.provider)) {
-    throw new _errors_js__WEBPACK_IMPORTED_MODULE_7__/* .UserError */ .y(
+    throw new _errors_js__WEBPACK_IMPORTED_MODULE_8__/* .UserError */ .y(
       `Input "provider" must be one of: ${(0,_providers_index_js__WEBPACK_IMPORTED_MODULE_6__/* .providerNames */ .e)().join(', ')}. Got "${inputs.provider}".`,
     );
   }
@@ -9104,8 +9113,9 @@ function setOutput(env, name, value) {
   if (env.GITHUB_OUTPUT) (0,node_fs__WEBPACK_IMPORTED_MODULE_0__.appendFileSync)(env.GITHUB_OUTPUT, `${name}=${value}\n`);
 }
 
-// `fetch` and `sleep` are injectable so tests never touch the network or wait.
-async function run({ env = process.env, logger, fetch = globalThis.fetch, sleep } = {}) {
+// `fetch`, `sleep` and `execFile` are injectable so tests never touch the
+// network, wait, or need a particular ImageMagick.
+async function run({ env = process.env, logger, fetch = globalThis.fetch, sleep, execFile } = {}) {
   const inputs = readInputs(env);
   logger.addSecret(inputs.token);
   if (inputs.secretsToken) logger.addSecret(inputs.secretsToken);
@@ -9116,7 +9126,7 @@ async function run({ env = process.env, logger, fetch = globalThis.fetch, sleep 
     providers: (0,_providers_index_js__WEBPACK_IMPORTED_MODULE_6__/* .providerNames */ .e)(),
   });
   if (config.provider && config.provider !== inputs.provider) {
-    throw new _errors_js__WEBPACK_IMPORTED_MODULE_7__/* .UserError */ .y(
+    throw new _errors_js__WEBPACK_IMPORTED_MODULE_8__/* .UserError */ .y(
       `${inputs.config}: provider is "${config.provider}" but the workflow input is "${inputs.provider}". Make them match.`,
     );
   }
@@ -9126,14 +9136,28 @@ async function run({ env = process.env, logger, fetch = globalThis.fetch, sleep 
       (inputs.fixtureDir ? ' fixtures=on' : ''),
   );
 
+  // Before any network call, so a missing tool fails the run immediately.
+  const tool = await (0,_thumbs_js__WEBPACK_IMPORTED_MODULE_7__/* .preflight */ .Mz)({ execFile, format: config.thumbnails.format });
+  if (tool.format !== config.thumbnails.format) {
+    logger.warning('ImageMagick cannot write WebP here; thumbnails will be JPEG.');
+  }
+
+  const providerFetch = inputs.fixtureDir ? (0,_providers_fixtures_js__WEBPACK_IMPORTED_MODULE_5__/* .createFixtureFetch */ .A)((0,node_path__WEBPACK_IMPORTED_MODULE_2__.resolve)(workspace, inputs.fixtureDir)) : fetch;
   const provider = (0,_providers_index_js__WEBPACK_IMPORTED_MODULE_6__/* .getProvider */ .s)(inputs.provider);
   const { items, skipped } = await provider.fetchItems({
     token: inputs.token,
     limit: config.fetch.limit,
-    fetch: inputs.fixtureDir ? (0,_providers_fixtures_js__WEBPACK_IMPORTED_MODULE_5__/* .createFixtureFetch */ .A)((0,node_path__WEBPACK_IMPORTED_MODULE_2__.resolve)(workspace, inputs.fixtureDir)) : fetch,
+    fetch: providerFetch,
     sleep,
   });
   for (const { id, reason } of skipped) logger.warning(`Skipped ${inputs.provider} item ${id}: ${reason}.`);
+
+  // Provisional until state lands (M6): treat the newest `backfill` items as new.
+  const fresh = items.slice(0, config.fetch.backfill);
+  const thumbnail = (0,_thumbs_js__WEBPACK_IMPORTED_MODULE_7__/* .createThumbnailer */ .oD)({ settings: config.thumbnails, tool, fetch: providerFetch, execFile });
+  let thumbBytes = 0;
+  for (const item of fresh) thumbBytes += (await thumbnail(item)).bytes;
+  logger.info(`thumbnails: ${fresh.length} built with ${tool.command} as ${tool.format}, ${thumbBytes} bytes`);
 
   const result = { fetched: items.length, added: 0, removed: 0, kept: 0, changed: false };
   logger.notice(
@@ -9163,7 +9187,7 @@ async function main(env = process.env) {
   } catch (err) {
     // UserErrors carry a message written for the reader; anything else is a
     // bug, but we still avoid dumping a stack that could hold request data.
-    const message = err instanceof _errors_js__WEBPACK_IMPORTED_MODULE_7__/* .UserError */ .y ? err.message : `Unexpected error: ${err.message}`;
+    const message = err instanceof _errors_js__WEBPACK_IMPORTED_MODULE_8__/* .UserError */ .y ? err.message : `Unexpected error: ${err.message}`;
     logger.error(message);
     process.exitCode = 1;
   }
@@ -9185,22 +9209,15 @@ __webpack_async_result__();
 
 /***/ }),
 
-/***/ 72:
+/***/ 8765:
 /***/ ((__unused_webpack___webpack_module__, __webpack_exports__, __nccwpck_require__) => {
 
-
-// EXPORTS
-__nccwpck_require__.d(__webpack_exports__, {
-  A: () => (/* binding */ createFixtureFetch)
-});
-
-// UNUSED EXPORTS: FIXTURE_HOST
-
-;// CONCATENATED MODULE: external "node:fs/promises"
-const promises_namespaceObject = __WEBPACK_EXTERNAL_createRequire(import.meta.url)("node:fs/promises");
-// EXTERNAL MODULE: external "node:path"
-var external_node_path_ = __nccwpck_require__(6760);
-;// CONCATENATED MODULE: ./src/providers/fixtures.js
+/* harmony export */ __nccwpck_require__.d(__webpack_exports__, {
+/* harmony export */   A: () => (/* binding */ createFixtureFetch)
+/* harmony export */ });
+/* unused harmony export FIXTURE_HOST */
+/* harmony import */ var node_fs_promises__WEBPACK_IMPORTED_MODULE_0__ = __nccwpck_require__(1455);
+/* harmony import */ var node_path__WEBPACK_IMPORTED_MODULE_1__ = __nccwpck_require__(6760);
 // Fixture mode: a stand-in for fetch that answers from files on disk, used by
 // tests and the e2e workflow so no real token or network is needed.
 //
@@ -9220,7 +9237,7 @@ function fixturePath(url) {
   return [after ? `${base}-after-${after}.json` : `${base}.json`];
 }
 
-function createFixtureFetch(dir, { readFile = promises_namespaceObject.readFile } = {}) {
+function createFixtureFetch(dir, { readFile = node_fs_promises__WEBPACK_IMPORTED_MODULE_0__.readFile } = {}) {
   return async (input) => {
     const segments = fixturePath(new URL(input));
     // Fixture names come from URLs in fixture data; keep them inside `dir`.
@@ -9228,7 +9245,7 @@ function createFixtureFetch(dir, { readFile = promises_namespaceObject.readFile 
       return new Response('bad fixture path', { status: 400 });
     }
     try {
-      return new Response(await readFile((0,external_node_path_.join)(dir, ...segments)), { status: 200 });
+      return new Response(await readFile((0,node_path__WEBPACK_IMPORTED_MODULE_1__.join)(dir, ...segments)), { status: 200 });
     } catch (err) {
       if (err.code === 'ENOENT') return new Response('no such fixture', { status: 404 });
       throw err;
@@ -9479,6 +9496,189 @@ function getProvider(name) {
   const adapter = adapters[name];
   if (!adapter) throw new Error(`Unknown provider "${name}".`);
   return adapter;
+}
+
+
+/***/ }),
+
+/***/ 2941:
+/***/ ((__unused_webpack___webpack_module__, __webpack_exports__, __nccwpck_require__) => {
+
+
+// EXPORTS
+__nccwpck_require__.d(__webpack_exports__, {
+  oD: () => (/* binding */ createThumbnailer),
+  Mz: () => (/* binding */ preflight)
+});
+
+// UNUSED EXPORTS: INSTALL_HINT, MAX_DOWNLOAD_BYTES, QUALITY_FLOOR, QUALITY_STEP, detectCoder, encodeArgs, supportsWebpWrite
+
+;// CONCATENATED MODULE: external "node:child_process"
+const external_node_child_process_namespaceObject = __WEBPACK_EXTERNAL_createRequire(import.meta.url)("node:child_process");
+// EXTERNAL MODULE: external "node:fs/promises"
+var promises_ = __nccwpck_require__(1455);
+;// CONCATENATED MODULE: external "node:os"
+const external_node_os_namespaceObject = __WEBPACK_EXTERNAL_createRequire(import.meta.url)("node:os");
+// EXTERNAL MODULE: external "node:path"
+var external_node_path_ = __nccwpck_require__(6760);
+// EXTERNAL MODULE: ./src/errors.js
+var errors = __nccwpck_require__(3247);
+;// CONCATENATED MODULE: ./src/thumbs.js
+// Thumbnail pipeline: download once at ingest (CDN URLs expire), resize with
+// ImageMagick, strip metadata, and return data: URIs ready to embed.
+
+
+
+
+
+
+const INSTALL_HINT =
+  'Add this step before the action in your workflow:\n' +
+  '  - run: sudo apt-get update && sudo apt-get install -y imagemagick';
+const MAX_DOWNLOAD_BYTES = 15 * 1024 * 1024;
+const QUALITY_STEP = 10;
+const QUALITY_FLOOR = 30;
+const EXEC_OPTIONS = { encoding: 'buffer', maxBuffer: 32 * 1024 * 1024, timeout: 60_000 };
+const MIME = { webp: 'image/webp', jpeg: 'image/jpeg' };
+
+// ImageMagick chooses a decoder from the file's contents, and some decoders
+// (SVG, MSL, text) are risky on untrusted input. We accept only these
+// formats and name the decoder explicitly.
+const SIGNATURES = [
+  { coder: 'jpeg', matches: (b) => b.length > 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff },
+  { coder: 'png', matches: (b) => b.length > 8 && b.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) },
+  { coder: 'webp', matches: (b) => b.length > 12 && b.toString('latin1', 0, 4) === 'RIFF' && b.toString('latin1', 8, 12) === 'WEBP' },
+];
+
+function detectCoder(bytes) {
+  return SIGNATURES.find((signature) => signature.matches(bytes))?.coder ?? null;
+}
+
+// Always argument arrays, never a shell string: nothing here is ever parsed
+// by a shell, so a hostile file name or URL cannot inject a command.
+function exec(execFile, command, args) {
+  return new Promise((resolve, reject) => {
+    execFile(command, args, EXEC_OPTIONS, (err, stdout, stderr) => {
+      if (err) {
+        err.stderr = String(stderr ?? '').trim();
+        reject(err);
+      } else {
+        resolve(stdout);
+      }
+    });
+  });
+}
+
+// `-list format` prints rows like "     WEBP* WEBP      rw+   WebP Image Format".
+function supportsWebpWrite(listing) {
+  const row = String(listing).match(/^\s*WEBP\*?\s+\S+\s+([r-])([w-])/m);
+  return row?.[2] === 'w';
+}
+
+// Find ImageMagick 7 (`magick`) or 6 (`convert`, what Ubuntu ships), and
+// check for a WebP encoder. Fails early with the exact fix.
+async function preflight({ execFile = external_node_child_process_namespaceObject.execFile, format = 'webp' } = {}) {
+  let command = null;
+  for (const candidate of ['magick', 'convert']) {
+    try {
+      const version = String(await exec(execFile, candidate, ['-version']));
+      // On some systems `convert` is an unrelated tool; insist on ImageMagick.
+      if (version.includes('ImageMagick')) {
+        command = candidate;
+        break;
+      }
+    } catch {
+      // Not installed under this name; try the next one.
+    }
+  }
+  if (!command) throw new errors/* UserError */.y(`ImageMagick is not installed. ${INSTALL_HINT}`);
+
+  let output = format;
+  if (format === 'webp') {
+    const listing = await exec(execFile, command, ['-list', 'format']).catch(() => '');
+    if (!supportsWebpWrite(listing)) output = 'jpeg';
+  }
+  return { command, format: output };
+}
+
+function encodeArgs({ input, coder, width, format, quality }) {
+  return [
+    `${coder}:${input}[0]`, // explicit decoder; first frame only
+    '-auto-orient', // apply EXIF rotation before -strip removes it
+    '-resize',
+    `${width}x>`, // shrink to width, never enlarge
+    '-strip',
+    '-quality',
+    String(quality),
+    `${format}:-`,
+  ];
+}
+
+async function download(fetch, url) {
+  let response;
+  try {
+    response = await fetch(url);
+  } catch (err) {
+    throw new Error(`download failed (${err.code ?? err.name})`, { cause: err });
+  }
+  if (!response.ok) throw new Error(`download failed (HTTP ${response.status})`);
+  const declared = Number(response.headers.get('content-length'));
+  if (declared > MAX_DOWNLOAD_BYTES) throw new Error(`image is larger than ${MAX_DOWNLOAD_BYTES} bytes`);
+  const bytes = Buffer.from(await response.arrayBuffer());
+  if (bytes.length > MAX_DOWNLOAD_BYTES) throw new Error(`image is larger than ${MAX_DOWNLOAD_BYTES} bytes`);
+  return bytes;
+}
+
+const dataUri = (format, bytes) => `data:${MIME[format]};base64,${bytes.toString('base64')}`;
+
+// Returns async (item) => ({ full, tiny, bytes }). `tool` comes from preflight().
+// Any failure throws a UserError naming the item, which fails the whole run:
+// a run never commits a partial set of items.
+function createThumbnailer({ settings, tool, fetch = globalThis.fetch, execFile = external_node_child_process_namespaceObject.execFile, tempRoot = (0,external_node_os_namespaceObject.tmpdir)() }) {
+  const { format, command } = tool;
+
+  async function encode(input, coder, width, quality) {
+    return exec(execFile, command, encodeArgs({ input, coder, width, format, quality }));
+  }
+
+  return async function thumbnail(item) {
+    const fail = (reason) => new errors/* UserError */.y(`Thumbnail for ${item.provider} item ${item.id} failed: ${reason}.`);
+    // URLs carry signed query strings; they never go into messages.
+    let bytes;
+    try {
+      bytes = await download(fetch, item.thumbnail_url);
+    } catch (err) {
+      throw fail(err.message);
+    }
+    const coder = detectCoder(bytes);
+    if (!coder) throw fail('the file is not a JPEG, PNG, or WebP image');
+
+    const dir = await (0,promises_.mkdtemp)((0,external_node_path_.join)(tempRoot, 'smc-thumb-'));
+    try {
+      const input = (0,external_node_path_.join)(dir, `source.${coder}`);
+      await (0,promises_.writeFile)(input, bytes);
+
+      let quality = settings.quality;
+      let full = await encode(input, coder, settings.width, quality).catch((err) => {
+        throw fail(`ImageMagick could not convert it (${err.stderr || err.code || err.message})`);
+      });
+      // Re-encode at lower quality until it fits, down to a floor.
+      while (full.length > settings.max_bytes && quality > QUALITY_FLOOR) {
+        quality = Math.max(QUALITY_FLOOR, quality - QUALITY_STEP);
+        full = await encode(input, coder, settings.width, quality);
+      }
+      if (full.length > settings.max_bytes) {
+        throw fail(
+          `the ${settings.width}px image is ${full.length} bytes at quality ${quality}, over thumbnails.max_bytes ` +
+            `(${settings.max_bytes}). Raise thumbnails.max_bytes or lower thumbnails.width`,
+        );
+      }
+      const tiny = await encode(input, coder, settings.tiny_width, settings.quality);
+      return { full: dataUri(format, full), tiny: dataUri(format, tiny), bytes: full.length + tiny.length };
+    } finally {
+      await (0,promises_.rm)(dir, { recursive: true, force: true });
+    }
+  };
 }
 
 

@@ -18,10 +18,14 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install ImageMagick
         run: sudo apt-get update && sudo apt-get install -y imagemagick
-      - name: Report ImageMagick WebP support
+      - name: Check ImageMagick can write WebP (section 17.4)
         run: |
-          (command -v magick || command -v convert)
-          convert -list format | grep -i webp || echo "::warning::WebP coder not available"
+          node --input-type=module -e "
+            import { preflight } from './src/thumbs.js';
+            const tool = await preflight();
+            console.log(JSON.stringify(tool));
+            if (tool.format !== 'webp') { console.log('::error::WebP encoder missing on this runner'); process.exit(1); }
+          "
       - name: Run action (dry run, fixtures)
         id: feed
         uses: ./

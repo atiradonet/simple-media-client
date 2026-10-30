@@ -6,6 +6,7 @@ import { createLogger } from './log.js';
 import { UserError } from './errors.js';
 import { createFixtureFetch } from './providers/fixtures.js';
 import { getProvider, providerNames } from './providers/index.js';
+import { createThumbnailer, preflight } from './thumbs.js';
 
 export { UserError };
 
@@ -42,8 +43,9 @@ function setOutput(env, name, value) {
   if (env.GITHUB_OUTPUT) appendFileSync(env.GITHUB_OUTPUT, `${name}=${value}\n`);
 }
 
-// `fetch` and `sleep` are injectable so tests never touch the network or wait.
-export async function run({ env = process.env, logger, fetch = globalThis.fetch, sleep } = {}) {
+// `fetch`, `sleep` and `execFile` are injectable so tests never touch the
+// network, wait, or need a particular ImageMagick.
+export async function run({ env = process.env, logger, fetch = globalThis.fetch, sleep, execFile } = {}) {
   const inputs = readInputs(env);
   logger.addSecret(inputs.token);
   if (inputs.secretsToken) logger.addSecret(inputs.secretsToken);
@@ -64,14 +66,28 @@ export async function run({ env = process.env, logger, fetch = globalThis.fetch,
       (inputs.fixtureDir ? ' fixtures=on' : ''),
   );
 
+  // Before any network call, so a missing tool fails the run immediately.
+  const tool = await preflight({ execFile, format: config.thumbnails.format });
+  if (tool.format !== config.thumbnails.format) {
+    logger.warning('ImageMagick cannot write WebP here; thumbnails will be JPEG.');
+  }
+
+  const providerFetch = inputs.fixtureDir ? createFixtureFetch(resolve(workspace, inputs.fixtureDir)) : fetch;
   const provider = getProvider(inputs.provider);
   const { items, skipped } = await provider.fetchItems({
     token: inputs.token,
     limit: config.fetch.limit,
-    fetch: inputs.fixtureDir ? createFixtureFetch(resolve(workspace, inputs.fixtureDir)) : fetch,
+    fetch: providerFetch,
     sleep,
   });
   for (const { id, reason } of skipped) logger.warning(`Skipped ${inputs.provider} item ${id}: ${reason}.`);
+
+  // Provisional until state lands (M6): treat the newest `backfill` items as new.
+  const fresh = items.slice(0, config.fetch.backfill);
+  const thumbnail = createThumbnailer({ settings: config.thumbnails, tool, fetch: providerFetch, execFile });
+  let thumbBytes = 0;
+  for (const item of fresh) thumbBytes += (await thumbnail(item)).bytes;
+  logger.info(`thumbnails: ${fresh.length} built with ${tool.command} as ${tool.format}, ${thumbBytes} bytes`);
 
   const result = { fetched: items.length, added: 0, removed: 0, kept: 0, changed: false };
   logger.notice(

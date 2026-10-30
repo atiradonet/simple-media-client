@@ -122,3 +122,25 @@ test('run warns about skipped items without failing', async (t) => {
   assert.equal(result.fetched, 0);
   assert.match(stdout.text(), /::warning::Skipped instagram item \.\.\/x: id has characters that are not allowed in a file name\./);
 });
+
+test('run fails on missing ImageMagick before any network request', async (t) => {
+  const dir = workspace(t);
+  const { logger } = captureLogger();
+  const execFile = (command, args, options, callback) => callback(Object.assign(new Error('spawn ENOENT'), { code: 'ENOENT' }));
+  await assert.rejects(run({ env: actionEnv({}, { GITHUB_WORKSPACE: dir }), logger, fetch: noNetwork, execFile }), {
+    name: 'UserError',
+    message: /^ImageMagick is not installed\./,
+  });
+});
+
+test('run warns when thumbnails fall back to JPEG', async (t) => {
+  const dir = workspace(t);
+  const { logger, stdout } = captureLogger();
+  // ImageMagick without a WebP encoder; every encode returns a tiny fake image.
+  const execFile = (command, args, options, callback) =>
+    callback(null, Buffer.from(args[0] === '-version' ? 'ImageMagick 6' : args[0] === '-list' ? '' : 'img'), Buffer.from(''));
+  const env = actionEnv({ fixture_dir: INSTAGRAM_FIXTURES }, { GITHUB_WORKSPACE: dir });
+  await run({ env, logger, fetch: noNetwork, execFile });
+  assert.match(stdout.text(), /::warning::ImageMagick cannot write WebP here; thumbnails will be JPEG\./);
+  assert.match(stdout.text(), /thumbnails: 6 built with magick as jpeg, 36 bytes/);
+});

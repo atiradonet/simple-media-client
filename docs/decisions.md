@@ -67,6 +67,16 @@ Decision: the action does not install packages itself. Installing them would add
 
 Cost: roughly 20–40 s of runner time per run, free on a public repo. Preflight looks for `magick` (ImageMagick 7), then `convert` (ImageMagick 6, which Ubuntu ships). It fails with that exact install line if neither is found, and falls back to JPEG if the WebP coder is missing.
 
+### Thumbnail choices (M4)
+
+- **Shrink only, never enlarge** (`-resize 480x>`). A source narrower than `thumbnails.width` keeps its width; upscaling adds bytes and blur.
+- **Only JPEG, PNG and WebP inputs**, detected from magic bytes. The decoder is named explicitly (`jpeg:file[0]`), so a hostile download cannot reach ImageMagick's SVG, MSL or text decoders. Anything else fails the item.
+- **Download cap: 15 MB** (declared `Content-Length` and actual bytes). One attempt; a failed download fails the run, and the next daily run tries again.
+- **`max_bytes`** applies to the 480 px image: quality steps down by 10 to a floor of 30, then the item fails. The 96 px image uses the configured quality.
+- **`-auto-orient` before `-strip`**, so rotation survives metadata removal.
+- No `-limit` flags: their units differ between ImageMagick 6 and 7. Ubuntu's `policy.xml` limits plus the 15 MB cap bound memory use.
+- Output is byte-identical for identical input (checked by test), which keeps reruns diff-free.
+
 ## 17.5 Action runtime
 
 Source: GitHub docs, metadata syntax. `runs.using` supports `node20` and `node24`. We use `node24`.
