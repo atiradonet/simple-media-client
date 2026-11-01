@@ -16,6 +16,7 @@ export const FIELDS = [
   'timestamp',
 ];
 export const RETRY_DELAYS_MS = [1000, 4000, 16000];
+export const TOKEN_SECRET = 'INSTAGRAM_TOKEN';
 export const TOKEN_MESSAGE =
   'Token expired or invalid; regenerate it and update the INSTAGRAM_TOKEN secret.';
 
@@ -192,4 +193,17 @@ export async function fetchItems({ token, limit, fetch = globalThis.fetch, sleep
     url = hasNext && seen.size < limit && body.data.length > 0 ? mediaUrl(token, limit, after) : null;
   }
   return { items, skipped };
+}
+
+// Extends a long-lived token. Meta requires it to be at least 24 hours old, and
+// documents no error code for "too young", so the caller treats any failure here
+// as a warning: fetching media is what proves the token works.
+export async function refreshToken({ token, fetch = globalThis.fetch, sleep = defaultSleep }) {
+  const url = new URL(`https://${API_HOST}/refresh_access_token`);
+  url.searchParams.set('grant_type', 'ig_refresh_token');
+  url.searchParams.set('access_token', token);
+  const body = await requestJson(url.toString(), { fetch, sleep });
+  if (typeof body.access_token !== 'string' || body.access_token === '') throw malformed('no access_token');
+  if (!Number.isFinite(body.expires_in) || body.expires_in <= 0) throw malformed('no expires_in');
+  return { token: body.access_token, expiresIn: body.expires_in };
 }
