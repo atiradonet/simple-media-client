@@ -1,6 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { compileRules, createClassifier } from '../../src/classify.js';
+import { parseConfig } from '../../src/config.js';
 
 function category(name, { hashtags = [], keywords = [], media = [] } = {}) {
   return { name, hashtags, keywords, media };
@@ -107,4 +110,11 @@ test('performance: a hundred items take well under a millisecond each', () => {
   for (const item of items) classify(item);
   const perItemMs = Number(process.hrtime.bigint() - start) / 1e6 / items.length;
   assert.ok(perItemMs < 1, `took ${perItemMs.toFixed(3)} ms per item`);
+});
+
+test('the worked examples in the README hold for the example config', () => {
+  const config = parseConfig(readFileSync(join(import.meta.dirname, '../../examples/simple-media.yml'), 'utf8'));
+  const classify = createClassifier(config);
+  assert.equal(classify({ caption: 'Dinner at the airport #foodie', type: 'photo' }), 'Travel');
+  assert.equal(classify({ caption: 'Sunday pasta #recipe', type: 'reel' }), 'Food');
 });

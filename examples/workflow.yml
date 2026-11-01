@@ -29,6 +29,8 @@ jobs:
         with:
           provider: instagram
           token: ${{ secrets.INSTAGRAM_TOKEN }}
+          # Lets the action store refreshed tokens. See docs/setup-instagram.md, step 5.
+          # secrets_token: ${{ secrets.FEED_SECRETS_TOKEN }}
           dry_run: ${{ inputs.dry_run || 'false' }}
       # Pushes made with GITHUB_TOKEN do not trigger a Pages build on their own.
       # This step is for Pages set to "Deploy from a branch". It also runs when the

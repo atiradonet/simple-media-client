@@ -67,6 +67,10 @@ Decision: the action sets an output `changed` (`true`/`false`). The example work
 
 **Open:** Pages isn't enabled on this repo, so e2e can't exercise the build request. The live smoke test (14.8) confirms it works with `GITHUB_TOKEN`.
 
+## Commit and push on a real runner
+
+**Confirmed (e2e, 2026-11-02):** `GITHUB_TOKEN` with `contents: write` pushes a commit authored by `github-actions[bot]`. A second run with the same data makes no commit.
+
 ## 17.4 ImageMagick on `ubuntu-latest`
 
 Source: `actions/runner-images` Ubuntu 24.04 readme. ImageMagick is **not** listed.
@@ -102,7 +106,7 @@ Source: Instagram Platform overview.
 
 - Standard Access is the default and covers apps that serve only the developer's own accounts or accounts with a role on the app. Advanced Access (App Review + Business Verification) applies to apps serving accounts the developer doesn't own or manage. A per-influencer app used only by that influencer fits Standard Access.
 - The overview states no specific storage or caching rules. It defers to Meta Platform Terms and Developer Policies, and notes CDN URLs stop serving deleted media. Our daily deletion sync (section 11, step 4) removes items deleted on Instagram that are still inside the fetch window.
-- **Open:** the README points influencers to Meta's current Platform Terms and Developer Policies. This is not legal advice.
+- The README points influencers to Meta's current Platform Terms and Developer Policies, and says it is not legal advice.
 
 ## 17.7 Scheduled-workflow inactivity rule
 

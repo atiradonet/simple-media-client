@@ -1,6 +1,6 @@
 {
   "name": "simple-media-client",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "description": "GitHub Action that turns an Instagram account's posts into a small, self-contained static feed for GitHub Pages.",
   "type": "module",
