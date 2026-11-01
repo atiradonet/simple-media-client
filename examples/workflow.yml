@@ -31,8 +31,9 @@ jobs:
           token: ${{ secrets.INSTAGRAM_TOKEN }}
           dry_run: ${{ inputs.dry_run || 'false' }}
       # Pushes made with GITHUB_TOKEN do not trigger a Pages build on their own.
-      # This step is for Pages set to "Deploy from a branch".
-      - if: steps.feed.outputs.changed == 'true'
+      # This step is for Pages set to "Deploy from a branch". It also runs when the
+      # action fails after pushing, which is what a token-expiry warning does.
+      - if: ${{ !cancelled() && steps.feed.outputs.changed == 'true' }}
         run: gh api -X POST "repos/${{ github.repository }}/pages/builds"
         env:
           GH_TOKEN: ${{ github.token }}

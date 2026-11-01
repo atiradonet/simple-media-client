@@ -1,12 +1,17 @@
-import { appendFileSync, realpathSync } from 'node:fs';
+import { appendFileSync, existsSync, realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { resolve } from 'node:path';
+import { join, resolve } from 'node:path';
+import { createClassifier } from './classify.js';
 import { loadConfig } from './config.js';
+import { buildEntry, renderItemFile, renderSharedFiles, syncFiles } from './feed.js';
+import { commitAndPush, commitMessage, createGit } from './git.js';
 import { createLogger } from './log.js';
 import { UserError } from './errors.js';
 import { createFixtureFetch } from './providers/fixtures.js';
 import { getProvider, providerNames } from './providers/index.js';
+import { compareItems, loadState, planUpdate } from './state.js';
 import { createThumbnailer, preflight } from './thumbs.js';
+import { assessToken, expiryFailure, storeSecret } from './token.js';
 
 export { UserError };
 
@@ -43,9 +48,58 @@ function setOutput(env, name, value) {
   if (env.GITHUB_OUTPUT) appendFileSync(env.GITHUB_OUTPUT, `${name}=${value}\n`);
 }
 
-// `fetch`, `sleep` and `execFile` are injectable so tests never touch the
-// network, wait, or need a particular ImageMagick.
-export async function run({ env = process.env, logger, fetch = globalThis.fetch, sleep, execFile } = {}) {
+// Refresh the token and store it if it changed. Returns the state record to
+// keep and, if the owner must act, a message that fails the run at the end, so
+// a token problem never costs today's feed update.
+async function maintainToken({ provider, inputs, state, env, logger, fetch, sleep, execFile, now }) {
+  let refreshed = null;
+  try {
+    refreshed = await provider.refreshToken({ token: inputs.token, fetch, sleep });
+    logger.addSecret(refreshed.token);
+  } catch (err) {
+    if (!(err instanceof UserError)) throw err;
+    // Normal for a token under 24 hours old.
+    logger.warning(`Could not refresh the access token: ${err.message}`);
+  }
+  const secretName = provider.TOKEN_SECRET;
+  const assessed = assessToken({
+    token: inputs.token,
+    refreshed,
+    secretsToken: inputs.secretsToken,
+    record: state.token,
+    now,
+  });
+  let failure = null;
+  if (assessed.store) {
+    try {
+      await storeSecret({
+        name: secretName,
+        value: refreshed.token,
+        repository: env.GITHUB_REPOSITORY,
+        secretsToken: inputs.secretsToken,
+        env,
+        execFile,
+      });
+      logger.info(`token: stored the refreshed token in ${secretName}`);
+    } catch (err) {
+      failure = `Could not store the refreshed token in ${secretName}: ${err.stderr || err.code || err.message}. Check that secrets_token has Secrets write access to this repository.`;
+    }
+  }
+  if (assessed.untracked) {
+    logger.warning(
+      `Instagram returned a new token string and secrets_token is not set, so it cannot be saved. The ${secretName} secret is treated as expiring on ${assessed.expiresAt.slice(0, 10)}.`,
+    );
+  }
+  if (assessed.expiresAt) logger.info(`token: expires ${assessed.expiresAt.slice(0, 10)}`);
+  return {
+    record: assessed.record,
+    failure: failure ?? expiryFailure({ expiresAt: assessed.expiresAt, now, secretName }),
+  };
+}
+
+// `fetch`, `sleep`, `execFile` and `now` are injectable so tests never touch
+// the network, wait, or need a particular ImageMagick or clock.
+export async function run({ env = process.env, logger, fetch = globalThis.fetch, sleep, execFile, now = Date.now } = {}) {
   const inputs = readInputs(env);
   logger.addSecret(inputs.token);
   if (inputs.secretsToken) logger.addSecret(inputs.secretsToken);
@@ -72,6 +126,13 @@ export async function run({ env = process.env, logger, fetch = globalThis.fetch,
     logger.warning('ImageMagick cannot write WebP here; thumbnails will be JPEG.');
   }
 
+  const root = join(workspace, config.output.dir);
+  const loaded = await loadState(join(root, 'index.json'), { file: `${config.output.dir}/index.json` });
+  // Deleting an item's page from the repo is how an owner removes an old post
+  // by hand, so an entry without a page leaves the index too.
+  const pageless = loaded.items.filter((item) => !existsSync(join(root, item.page)));
+  const state = { ...loaded, items: loaded.items.filter((item) => !pageless.includes(item)) };
+
   const providerFetch = inputs.fixtureDir ? createFixtureFetch(resolve(workspace, inputs.fixtureDir)) : fetch;
   const provider = getProvider(inputs.provider);
   const { items, skipped } = await provider.fetchItems({
@@ -82,14 +143,65 @@ export async function run({ env = process.env, logger, fetch = globalThis.fetch,
   });
   for (const { id, reason } of skipped) logger.warning(`Skipped ${inputs.provider} item ${id}: ${reason}.`);
 
-  // Provisional until state lands (M6): treat the newest `backfill` items as new.
-  const fresh = items.slice(0, config.fetch.backfill);
-  const thumbnail = createThumbnailer({ settings: config.thumbnails, tool, fetch: providerFetch, execFile });
-  let thumbBytes = 0;
-  for (const item of fresh) thumbBytes += (await thumbnail(item)).bytes;
-  logger.info(`thumbnails: ${fresh.length} built with ${tool.command} as ${tool.format}, ${thumbBytes} bytes`);
+  const plan = planUpdate({
+    state,
+    provider: inputs.provider,
+    fetched: items,
+    skippedIds: skipped.map(({ id }) => id),
+    backfill: config.fetch.backfill,
+    maxItems: config.output.max_items,
+  });
 
-  const result = { fetched: items.length, added: 0, removed: 0, kept: 0, changed: false };
+  // A dry run changes nothing, and a refresh may rotate the token. Fixture runs
+  // have no real token to refresh.
+  const maintenance =
+    inputs.dryRun || inputs.fixtureDir
+      ? { record: state.token ?? null, failure: null }
+      : await maintainToken({ provider, inputs, state, env, logger, fetch, sleep, execFile, now: now() });
+
+  const classify = createClassifier(config);
+  const thumbnail = createThumbnailer({ settings: config.thumbnails, tool, fetch: providerFetch, execFile });
+  const writes = {};
+  const entries = [];
+  let thumbBytes = 0;
+  for (const item of plan.added) {
+    const thumb = await thumbnail(item);
+    thumbBytes += thumb.bytes;
+    const entry = buildEntry(item, classify(item), thumb.tiny);
+    entries.push(entry);
+    writes[entry.page] = renderItemFile(config.site, entry, item.caption, thumb.full);
+    logger.info(`new: ${entry.page} [${entry.category}]`);
+  }
+  logger.info(`thumbnails: ${plan.added.length} built with ${tool.command} as ${tool.format}, ${thumbBytes} bytes`);
+
+  const next = { version: state.version, items: [...plan.kept, ...entries].sort(compareItems) };
+  if (maintenance.record) next.token = maintenance.record;
+  Object.assign(writes, renderSharedFiles(config, next));
+
+  const gone = [...pageless, ...plan.removed, ...plan.pruned];
+  const synced = await syncFiles(root, { writes, deletes: gone.map((item) => item.page) }, { dryRun: inputs.dryRun });
+  logger.info(
+    `${inputs.dryRun ? 'dry run, would write' : 'wrote'} ${synced.written} files (${synced.bytes} bytes), ` +
+      `${inputs.dryRun ? 'would delete' : 'deleted'} ${synced.deleted}`,
+  );
+
+  const result = {
+    fetched: items.length,
+    added: plan.added.length,
+    removed: gone.length,
+    kept: plan.kept.length,
+    changed: false,
+  };
+  if (!inputs.dryRun) {
+    result.changed = await commitAndPush({
+      git: createGit({ cwd: workspace, env, execFile }),
+      dir: config.output.dir,
+      message: commitMessage({ added: result.added, removed: result.removed, provider: inputs.provider }),
+      logger,
+    });
+    if (!result.changed) logger.info('no changes');
+  }
+
   logger.notice(
     `${inputs.provider}: fetched ${result.fetched}, +${result.added} new, ` +
       `-${result.removed} removed, ${result.kept} kept`,
@@ -104,6 +216,7 @@ export async function run({ env = process.env, logger, fetch = globalThis.fetch,
     ].join('\n'),
   );
   setOutput(env, 'changed', String(result.changed));
+  if (maintenance.failure) throw new UserError(maintenance.failure);
   return result;
 }
 

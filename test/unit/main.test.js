@@ -65,7 +65,7 @@ test('run accepts a matching config provider and rejects an unknown one', async 
   const dir = tempDir(t);
   writeFileSync(join(dir, 'feed.yml'), 'provider: instagram\nsite:\n  title: T\n  contact_email: a@b.co\nfallback: X\n');
   const { logger } = captureLogger();
-  const env = actionEnv({ config: 'feed.yml', fixture_dir: INSTAGRAM_FIXTURES }, { GITHUB_WORKSPACE: dir });
+  const env = actionEnv({ config: 'feed.yml', dry_run: 'true', fixture_dir: INSTAGRAM_FIXTURES }, { GITHUB_WORKSPACE: dir });
   await assert.doesNotReject(run({ env, logger, fetch: noNetwork }));
   writeFileSync(join(dir, 'feed.yml'), 'provider: tiktok\nsite:\n  title: T\n  contact_email: a@b.co\nfallback: X\n');
   await assert.rejects(run({ env, logger, fetch: noNetwork }), { name: 'ConfigError' });
@@ -86,7 +86,7 @@ test('run prints a summary, writes the step summary and the changed output', asy
   assert.equal(result.changed, false);
   assert.equal(result.fetched, 6);
   assert.match(all(), /provider=instagram dry_run=true fixtures=on/);
-  assert.match(readText(summaryPath), /\| instagram \| true \| 6 \| 0 \| 0 \| 0 \|/);
+  assert.match(readText(summaryPath), /\| instagram \| true \| 6 \| 6 \| 0 \| 0 \|/);
   assert.equal(readText(outputPath), 'changed=false\n');
   assert.equal(all().includes(FAKE_TOKEN), false);
 });
@@ -118,7 +118,7 @@ test('run warns about skipped items without failing', async (t) => {
     ],
   };
   const fetch = async () => new Response(JSON.stringify(page));
-  const result = await run({ env: actionEnv({}, { GITHUB_WORKSPACE: dir }), logger, fetch });
+  const result = await run({ env: actionEnv({ dry_run: 'true' }, { GITHUB_WORKSPACE: dir }), logger, fetch });
   assert.equal(result.fetched, 0);
   assert.match(stdout.text(), /::warning::Skipped instagram item \.\.\/x: id has characters that are not allowed in a file name\./);
 });
@@ -139,7 +139,7 @@ test('run warns when thumbnails fall back to JPEG', async (t) => {
   // ImageMagick without a WebP encoder; every encode returns a tiny fake image.
   const execFile = (command, args, options, callback) =>
     callback(null, Buffer.from(args[0] === '-version' ? 'ImageMagick 6' : args[0] === '-list' ? '' : 'img'), Buffer.from(''));
-  const env = actionEnv({ fixture_dir: INSTAGRAM_FIXTURES }, { GITHUB_WORKSPACE: dir });
+  const env = actionEnv({ dry_run: 'true', fixture_dir: INSTAGRAM_FIXTURES }, { GITHUB_WORKSPACE: dir });
   await run({ env, logger, fetch: noNetwork, execFile });
   assert.match(stdout.text(), /::warning::ImageMagick cannot write WebP here; thumbnails will be JPEG\./);
   assert.match(stdout.text(), /thumbnails: 6 built with magick as jpeg, 36 bytes/);

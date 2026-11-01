@@ -1,15 +1,15 @@
 name: e2e
 
 # Runs the action from this repo on a real runner with fixture responses, so no
-# real token is needed. Grows with each milestone (thumbnails in M4, commit and
-# push in M6).
+# real token is needed. The commit and push go to a scratch branch that is
+# deleted at the end, so main never receives fixture data.
 on:
   push:
     branches: [main]
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   e2e:
@@ -37,3 +37,33 @@ jobs:
           fixture_dir: test/fixtures/instagram
       - name: Check outputs
         run: test "${{ steps.feed.outputs.changed }}" = "false"
+      - name: Switch to a scratch branch
+        run: git switch -c "e2e-scratch-${{ github.run_id }}-${{ github.run_attempt }}"
+      - name: Run action (real commit and push, fixtures)
+        id: push
+        uses: ./
+        with:
+          provider: instagram
+          token: fixture-token-not-real
+          config: examples/simple-media.yml
+          fixture_dir: test/fixtures/instagram
+      - name: Check the push reached the remote
+        run: |
+          test "${{ steps.push.outputs.changed }}" = "true"
+          branch="$(git branch --show-current)"
+          test "$(git ls-remote origin "refs/heads/$branch" | cut -f1)" = "$(git rev-parse HEAD)"
+          git log -1 --format='%s | %an' | grep -E '^feed: \+[0-9]+ new, -0 removed \(instagram\) \| github-actions\[bot\]$'
+          test -f feed/index.html && test -f feed/index.json
+      - name: Run action again (no new data, no commit)
+        id: again
+        uses: ./
+        with:
+          provider: instagram
+          token: fixture-token-not-real
+          config: examples/simple-media.yml
+          fixture_dir: test/fixtures/instagram
+      - name: Check the second run changed nothing
+        run: test "${{ steps.again.outputs.changed }}" = "false"
+      - name: Delete the scratch branch
+        if: always()
+        run: git push origin --delete "e2e-scratch-${{ github.run_id }}-${{ github.run_attempt }}" || true

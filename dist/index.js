@@ -8,6 +8,13 @@ module.exports = __WEBPACK_EXTERNAL_createRequire(import.meta.url)("buffer");
 
 /***/ }),
 
+/***/ 1421:
+/***/ ((module) => {
+
+module.exports = __WEBPACK_EXTERNAL_createRequire(import.meta.url)("node:child_process");
+
+/***/ }),
+
 /***/ 3024:
 /***/ ((module) => {
 
@@ -8610,6 +8617,66 @@ exports.visitAsync = visitAsync;
 
 /***/ }),
 
+/***/ 3206:
+/***/ ((__unused_webpack___webpack_module__, __webpack_exports__, __nccwpck_require__) => {
+
+/* harmony export */ __nccwpck_require__.d(__webpack_exports__, {
+/* harmony export */   CC: () => (/* binding */ createClassifier)
+/* harmony export */ });
+/* unused harmony exports compileRules, classify */
+/* harmony import */ var _normalize_js__WEBPACK_IMPORTED_MODULE_0__ = __nccwpck_require__(3825);
+
+
+// Letters, digits, or underscore in any script; used for word boundaries,
+// since \b only understands ASCII.
+const WORD_CHAR = '[\\p{L}\\p{N}_]';
+
+function escapeRegex(text) {
+  // Only syntax characters: the `u` flag rejects needless escapes such as \-.
+  return text.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
+}
+
+function compileKeywords(keywords) {
+  const terms = [...new Set(keywords.map(_normalize_js__WEBPACK_IMPORTED_MODULE_0__/* .normalize */ .S8).filter(Boolean))];
+  if (terms.length === 0) return null;
+  // Escape each word, then let any run of whitespace stand in for a space.
+  const alternatives = terms.map((term) => term.split(' ').map(escapeRegex).join('\\s+'));
+  return new RegExp(`(?<!${WORD_CHAR})(?:${alternatives.join('|')})(?!${WORD_CHAR})`, 'u');
+}
+
+// Compile once per run. Rules keep the config's order; that order decides
+// which category wins.
+function compileRules(config) {
+  return config.categories.map((category) => ({
+    name: category.name,
+    hashtags: new Set(category.hashtags.map(_normalize_js__WEBPACK_IMPORTED_MODULE_0__/* .normalize */ .S8)),
+    keywords: compileKeywords(category.keywords),
+    media: new Set(category.media.map(_normalize_js__WEBPACK_IMPORTED_MODULE_0__/* .normalize */ .S8)),
+  }));
+}
+
+function classify(rules, fallback, item) {
+  const caption = (0,_normalize_js__WEBPACK_IMPORTED_MODULE_0__/* .normalize */ .S8)(item.caption);
+  const tags = (0,_normalize_js__WEBPACK_IMPORTED_MODULE_0__/* .extractHashtags */ .Ft)(caption);
+  const text = (0,_normalize_js__WEBPACK_IMPORTED_MODULE_0__/* .removeHashtags */ .KC)(caption);
+  const type = (0,_normalize_js__WEBPACK_IMPORTED_MODULE_0__/* .normalize */ .S8)(item.type);
+
+  for (const rule of rules) {
+    if (tags.some((tag) => rule.hashtags.has(tag))) return rule.name;
+    if (rule.keywords?.test(text)) return rule.name;
+    if (rule.media.has(type)) return rule.name;
+  }
+  return fallback;
+}
+
+function createClassifier(config) {
+  const rules = compileRules(config);
+  return (item) => classify(rules, config.fallback, item);
+}
+
+
+/***/ }),
+
 /***/ 6770:
 /***/ ((__unused_webpack___webpack_module__, __webpack_exports__, __nccwpck_require__) => {
 
@@ -8974,6 +9041,610 @@ class UserError extends Error {
 
 /***/ }),
 
+/***/ 4451:
+/***/ ((__unused_webpack___webpack_module__, __webpack_exports__, __nccwpck_require__) => {
+
+
+// EXPORTS
+__nccwpck_require__.d(__webpack_exports__, {
+  Jo: () => (/* binding */ buildEntry),
+  Wu: () => (/* binding */ renderItemFile),
+  HW: () => (/* binding */ renderSharedFiles),
+  fl: () => (/* binding */ syncFiles)
+});
+
+// EXTERNAL MODULE: external "node:fs/promises"
+var promises_ = __nccwpck_require__(1455);
+// EXTERNAL MODULE: external "node:path"
+var external_node_path_ = __nccwpck_require__(6760);
+;// CONCATENATED MODULE: ./src/render/escape.js
+// Every piece of caption or config text reaches HTML through these functions.
+
+const HTML_ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+
+// Safe in text content and in double- or single-quoted attribute values.
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (char) => HTML_ESCAPES[char]);
+}
+
+// Only absolute https URLs become links; anything else (javascript:, data:,
+// relative paths) is refused. Returns the escaped URL or null.
+function safeHttpsUrl(value) {
+  try {
+    const url = new URL(String(value));
+    return url.protocol === 'https:' ? escapeHtml(url.href) : null;
+  } catch {
+    return null;
+  }
+}
+
+// Config validation already enforces this; checking again keeps the CSS
+// context safe even if a caller skips validation.
+const COLOR = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;
+function cssColor(value) {
+  if (!COLOR.test(String(value))) throw new Error(`Refusing unsafe CSS color ${JSON.stringify(value)}.`);
+  return String(value).toLowerCase();
+}
+
+// Text inside <style> must not be able to close the element.
+function cssSafe(text) {
+  if (/<\/style/i.test(text)) throw new Error('Refusing CSS that closes the style element.');
+  return text;
+}
+
+;// CONCATENATED MODULE: ./src/render/theme.js
+// Design tokens and the one inline stylesheet every page shares. The look
+// follows brinibruni.com: warm paper, serif ink, monospace small-caps labels,
+// one accent color, automatic dark mode.
+
+
+// WCAG relative luminance and contrast ratio, used by tests and by callers
+// that want to warn about a custom theme.
+function luminance(hex) {
+  let digits = hex.slice(1);
+  if (digits.length === 3) digits = [...digits].map((d) => d + d).join('');
+  const [r, g, b] = [0, 2, 4].map((i) => {
+    const c = parseInt(digits.slice(i, i + 2), 16) / 255;
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+function contrastRatio(a, b) {
+  const [light, dark] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+  return (light + 0.05) / (dark + 0.05);
+}
+
+const tokens = (theme, suffix) =>
+  ['paper', 'ink', 'muted', 'accent']
+    .map((name) => `--${name}:${cssColor(theme[`${name}${suffix}`])};`)
+    .join('');
+
+function themeCss(theme) {
+  return cssSafe(
+    [
+      `:root{color-scheme:light dark;${tokens(theme, '')}}`,
+      `@media (prefers-color-scheme:dark){:root{${tokens(theme, '_dark')}}}`,
+      '*,*::before,*::after{box-sizing:border-box}',
+      'html{-webkit-text-size-adjust:100%}',
+      '@media (prefers-reduced-motion:no-preference){html{scroll-behavior:smooth}a{transition:color .15s}}',
+      'body{margin:0;background:var(--paper);color:var(--ink);' +
+        'font:1.0625rem/1.6 ui-serif,"Palatino Linotype",Palatino,"Book Antiqua",Georgia,serif;overflow-wrap:break-word}',
+      '.wrap{max-width:44rem;margin:0 auto;padding:2rem 1rem 3rem}',
+      'header{margin-bottom:2rem}',
+      'h1,h2{font-weight:normal;line-height:1.2;margin:0 0 .5rem}',
+      'h1{font-size:clamp(1.75rem,6vw,2.5rem)}',
+      'h2{font-size:1.4rem;margin-top:2.5rem;padding-bottom:.25rem;border-bottom:1px solid var(--muted)}',
+      'a{color:var(--accent);text-underline-offset:.15em}',
+      'a:hover{color:var(--ink)}',
+      'a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}',
+      '.label,time,nav,footer{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;' +
+        'font-variant:small-caps;letter-spacing:.04em;font-size:.875rem;color:var(--muted)}',
+      '.label{margin:0 0 .5rem}',
+      '.site{color:var(--ink);text-decoration:none;font-size:1.1rem}',
+      '.intro{color:var(--muted);margin:.25rem 0 0}',
+      'nav ul,.feed{list-style:none;margin:0;padding:0}',
+      'nav ul{display:flex;flex-wrap:wrap;gap:.25rem 1rem}',
+      '.feed li{margin:0}',
+      '.feed a{display:flex;gap:.875rem;align-items:center;padding:.5rem 0;color:var(--ink);text-decoration:none}',
+      '.feed a:hover .t{color:var(--accent)}',
+      '.feed img{flex:none;width:3.5rem;height:3.5rem;object-fit:cover;border-radius:2px;background:var(--muted)}',
+      '.feed .t{display:block}',
+      'figure{margin:1.5rem 0}',
+      'figure img{display:block;max-width:100%;height:auto;border-radius:2px}',
+      '.caption{white-space:pre-line}',
+      'footer{margin-top:3rem;padding-top:1rem;border-top:1px solid var(--muted)}',
+      'footer ul{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:.25rem 1rem}',
+    ].join('\n'),
+  );
+}
+
+;// CONCATENATED MODULE: ./src/render/page.js
+// The document shell every generated page shares.
+
+
+
+// Belt and braces for self-containment: even if a bug let markup through,
+// the browser would refuse to load or run anything external.
+const CSP =
+  "default-src 'none'; img-src data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'";
+
+function renderPage({ site, title, description, base, header, main }) {
+  const link = (href, text) => `<li><a href="${base}${href}">${text}</a></li>`;
+  return `<!doctype html>
+<html lang="${escapeHtml(site.language)}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="${CSP}">
+<meta name="referrer" content="no-referrer">
+<meta name="color-scheme" content="light dark">
+<title>${escapeHtml(title)}</title>
+<meta name="description" content="${escapeHtml(description)}">
+<style>
+${themeCss(site.theme)}
+</style>
+</head>
+<body>
+<div class="wrap">
+${header}
+<main>
+${main}
+</main>
+<footer>
+<nav aria-label="Site">
+<ul>
+${link('index.html', 'All posts')}
+${link('privacy.html', 'Privacy')}
+${link('data-deletion.html', 'Data deletion')}
+</ul>
+</nav>
+</footer>
+</div>
+</body>
+</html>
+`;
+}
+
+function siteHeader(site, base) {
+  return `<header>
+<a class="site" href="${base}index.html">${escapeHtml(site.title)}</a>
+</header>`;
+}
+
+// EXTERNAL MODULE: ./src/normalize.js
+var normalize = __nccwpck_require__(3825);
+;// CONCATENATED MODULE: ./src/render/text.js
+// Turning captions into the short strings pages need: titles, alt text,
+// dates, anchors. Plain functions over plain data.
+
+
+const PROVIDER_LABELS = { instagram: 'Instagram', manual: 'the original post' };
+const TYPE_LABELS = { photo: 'Photo', carousel: 'Photo set', video: 'Video', reel: 'Reel' };
+const TITLE_MAX = 80;
+
+// Other people's handles are not ours to publish (BRIEF.md section 3). An
+// @ preceded by a word character is part of an email address and stays.
+const MENTION = /(^|[^\p{L}\p{N}_@.])@[A-Za-z0-9._]{1,30}/gu;
+const HASHTAG = /#[\p{L}\p{N}_]+/gu;
+
+function cleanCaption(caption) {
+  return String(caption ?? '')
+    .replace(/\r\n?/g, '\n')
+    .replace(MENTION, '$1')
+    .split('\n')
+    .map((line) => line.replace(/[^\S\n]+/g, ' ').trim())
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function truncate(text, max) {
+  if (text.length <= max) return text;
+  const cut = text.slice(0, max - 1);
+  const space = cut.lastIndexOf(' ');
+  return `${(space > max / 2 ? cut.slice(0, space) : cut).replace(/[\s,.;:!?-]+$/u, '')}…`;
+}
+
+// Dates render as ISO yyyy-mm-dd in UTC: language-neutral, and independent of
+// the ICU data in whatever Node version runs the action.
+function formatDate(timestamp) {
+  return new Date(timestamp).toISOString().slice(0, 10);
+}
+
+// First line of the cleaned caption without hashtags, shortened at a word.
+function deriveTitle({ caption, type, timestamp }) {
+  const firstLine =
+    cleanCaption(caption)
+      .split('\n')
+      .map((line) => line.replace(HASHTAG, '').replace(/\s+/g, ' ').trim())
+      .find((line) => line !== '') ?? '';
+  if (firstLine) return truncate(firstLine, TITLE_MAX);
+  return `${TYPE_LABELS[type] ?? 'Post'} from ${formatDate(timestamp)}`;
+}
+
+function altText({ title, caption, type }) {
+  if (cleanCaption(caption) !== '' && title) return title;
+  return type === 'video' || type === 'reel' ? 'Video thumbnail' : 'Photo';
+}
+
+function excerpt(text, max = 160) {
+  return truncate(cleanCaption(text).replace(/\s+/g, ' '), max);
+}
+
+// Anchor IDs for category headings. Unique within a page: a clash gets -2, -3.
+function createSlugger() {
+  const used = new Set();
+  return (name) => {
+    const base = `c-${(0,normalize/* normalize */.S8)(name).replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-|-$/g, '') || 'category'}`;
+    let slug = base;
+    for (let n = 2; used.has(slug); n++) slug = `${base}-${n}`;
+    used.add(slug);
+    return slug;
+  };
+}
+
+;// CONCATENATED MODULE: ./src/render/index.js
+// The feed's front page: posts grouped by category, in config order.
+
+
+
+
+const PAGE_PATH = /^p\/[a-z]+-[A-Za-z0-9_-]{1,64}\.html$/;
+const DATA_IMAGE = /^data:image\/(?:webp|jpeg|png);base64,[A-Za-z0-9+/]+={0,2}$/;
+
+const newestFirst = (a, b) =>
+  a.timestamp < b.timestamp ? 1 : a.timestamp > b.timestamp ? -1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+
+// Config categories first (file order), then the fallback, then categories
+// that only old items still carry, alphabetically. Empty groups are dropped.
+function groupItems(items, categoryNames, fallback) {
+  const groups = new Map();
+  for (const item of [...items].sort(newestFirst)) {
+    if (!groups.has(item.category)) groups.set(item.category, []);
+    groups.get(item.category).push(item);
+  }
+  const known = [...categoryNames, fallback];
+  const leftovers = [...groups.keys()].filter((name) => !known.includes(name)).sort();
+  return [...new Set([...known, ...leftovers])]
+    .filter((name) => groups.has(name))
+    .map((name) => ({ name, items: groups.get(name) }));
+}
+
+function entry(item) {
+  if (!PAGE_PATH.test(item.page)) throw new Error(`Item ${item.id}: unexpected page path.`);
+  // Decorative: the link text right next to it already says what the post is.
+  const image = DATA_IMAGE.test(item.tn ?? '') ? `<img src="${item.tn}" alt="" width="56" height="56">` : '';
+  return `<li><a href="${item.page}">${image}<span><span class="t">${escapeHtml(item.title)}</span> <time datetime="${escapeHtml(item.timestamp)}">${formatDate(item.timestamp)}</time></span></a></li>`;
+}
+
+function renderIndexPage({ site, categoryNames, fallback, items }) {
+  const groups = groupItems(items, categoryNames, fallback);
+  const slug = createSlugger();
+  const sections = groups.map((group) => ({ ...group, id: slug(group.name) }));
+  const profile = site.profile_url ? safeHttpsUrl(site.profile_url) : null;
+
+  const header = `<header>
+<h1>${escapeHtml(site.title)}</h1>
+${site.description ? `<p class="intro">${escapeHtml(site.description)}</p>\n` : ''}${profile ? `<p class="intro"><a href="${profile}" rel="noopener noreferrer">Profile on Instagram</a></p>\n` : ''}</header>`;
+
+  const main =
+    sections.length === 0
+      ? '<p>Nothing here yet. New posts appear after the next daily update.</p>'
+      : `<nav aria-label="Categories">
+<ul>
+${sections.map((s) => `<li><a href="#${s.id}">${escapeHtml(s.name)}</a> (${s.items.length})</li>`).join('\n')}
+</ul>
+</nav>
+${sections
+  .map(
+    (s) => `<section aria-labelledby="${s.id}">
+<h2 id="${s.id}">${escapeHtml(s.name)}</h2>
+<ul class="feed">
+${s.items.map(entry).join('\n')}
+</ul>
+</section>`,
+  )
+  .join('\n')}`;
+
+  return renderPage({
+    site,
+    title: site.title,
+    description: site.description || `Recent posts from ${site.title}.`,
+    base: '',
+    header,
+    main,
+  });
+}
+
+;// CONCATENATED MODULE: ./src/render/item.js
+// One standalone page per post, written once when the post is first seen.
+
+
+
+
+const item_DATA_IMAGE = /^data:image\/(?:webp|jpeg|png);base64,[A-Za-z0-9+/]+={0,2}$/;
+
+// `item` is the index.json record; `caption` and `image` (the 480px data URI)
+// are only needed here, so they are passed separately.
+function renderItemPage({ site, item, caption, image }) {
+  if (!item_DATA_IMAGE.test(image)) throw new Error(`Item ${item.id}: thumbnail is not an embeddable data URI.`);
+  const permalink = safeHttpsUrl(item.permalink);
+  if (!permalink) throw new Error(`Item ${item.id}: permalink is not an https URL.`);
+
+  const text = cleanCaption(caption);
+  const date = formatDate(item.timestamp);
+  const provider = PROVIDER_LABELS[item.provider] ?? item.provider;
+  const main = `<article>
+<p class="label">${escapeHtml(item.category)} · <time datetime="${escapeHtml(item.timestamp)}">${date}</time></p>
+<h1>${escapeHtml(item.title)}</h1>
+<figure>
+<img src="${image}" alt="${escapeHtml(altText({ title: item.title, caption: text, type: item.type }))}">
+</figure>
+${text ? `<p class="caption">${escapeHtml(text)}</p>\n` : ''}<p><a href="${permalink}" rel="noopener noreferrer">View on ${escapeHtml(provider)}</a></p>
+</article>`;
+
+  return renderPage({
+    site,
+    title: `${item.title} (${date}) · ${site.title}`,
+    description: text ? excerpt(text) : `${item.title}, posted ${date}.`,
+    base: '../',
+    header: siteHeader(site, '../'),
+    main,
+  });
+}
+
+;// CONCATENATED MODULE: ./src/render/legal.js
+// Plain-language privacy and data-deletion pages. A starting point, not legal
+// advice; the README says so.
+
+
+
+function contact(site) {
+  const email = escapeHtml(site.contact_email);
+  return `<a href="mailto:${email}">${email}</a>`;
+}
+
+function renderPrivacyPage({ site, fetchLimit }) {
+  const name = escapeHtml(site.title);
+  const main = `<h1>Privacy</h1>
+<h2>What this feed shows</h2>
+<p>This feed shows public posts from ${name}’s own Instagram account. It is updated once a day.</p>
+<h2>What is stored</h2>
+<p>For each post, the feed keeps the caption, the date, the link to the post on Instagram, and two small thumbnail images. It does not keep full-size photos or videos. It does not collect comments, likes, or anyone else’s posts, and it removes other people’s usernames from captions.</p>
+<h2>Visitors</h2>
+<p>This feed collects no data about visitors. It uses no cookies, analytics, or tracking, and its pages load nothing from other websites. The site is hosted on GitHub Pages, and GitHub may keep its own server logs.</p>
+<h2>Removing a post</h2>
+<p>If ${name} deletes a post on Instagram, the next daily update removes it here, as long as it is one of the account’s ${fetchLimit} most recent posts. For anything else, or to ask for a post to be removed, email ${contact(site)}.</p>
+<p>See also: <a href="data-deletion.html">how to request data deletion</a>.</p>`;
+  return renderPage({
+    site,
+    title: `Privacy · ${site.title}`,
+    description: `What the ${site.title} feed stores, and how to have something removed.`,
+    base: '',
+    header: siteHeader(site, ''),
+    main,
+  });
+}
+
+function renderDeletionPage({ site, fetchLimit }) {
+  const name = escapeHtml(site.title);
+  const main = `<h1>Data deletion</h1>
+<p>This feed stores only what is described on the <a href="privacy.html">privacy page</a>: captions, dates, links, and small thumbnails of ${name}’s own public Instagram posts. It holds no data about visitors.</p>
+<h2>How to request deletion</h2>
+<ol>
+<li>Email ${contact(site)} with a link to the post or a description of what you want removed.</li>
+<li>The post and its thumbnails are removed from this feed, and you get a reply when it is done.</li>
+</ol>
+<h2>If you are the account holder</h2>
+<p>Delete the post on Instagram. The next daily update removes it here, as long as it is one of your ${fetchLimit} most recent posts. Older posts can be removed by deleting their page from the site’s repository.</p>`;
+  return renderPage({
+    site,
+    title: `Data deletion · ${site.title}`,
+    description: `How to have data removed from the ${site.title} feed.`,
+    base: '',
+    header: siteHeader(site, ''),
+    main,
+  });
+}
+
+// EXTERNAL MODULE: ./src/state.js
+var src_state = __nccwpck_require__(1715);
+;// CONCATENATED MODULE: ./src/feed.js
+// Turns a plan into the bytes of the feed, then puts them on disk. Everything
+// is built in memory first, so a failure part way through writes nothing.
+
+
+
+
+
+
+
+
+function buildEntry(item, category, tn) {
+  return {
+    id: item.id,
+    provider: item.provider,
+    timestamp: item.timestamp,
+    type: item.type,
+    category,
+    title: deriveTitle(item),
+    permalink: item.permalink,
+    page: (0,src_state/* pagePath */.HX)(item.provider, item.id),
+    tn,
+  };
+}
+
+function renderItemFile(site, entry, caption, image) {
+  return renderItemPage({ site, item: entry, caption, image });
+}
+
+// The files every run rewrites. Unchanged bytes are not written (see syncFiles).
+function renderSharedFiles(config, state) {
+  const { site, categories, fallback, fetch } = config;
+  return {
+    'index.json': (0,src_state/* serializeState */.sU)(state),
+    'index.html': renderIndexPage({
+      site,
+      categoryNames: categories.map((category) => category.name),
+      fallback,
+      items: state.items,
+    }),
+    'privacy.html': renderPrivacyPage({ site, fetchLimit: fetch.limit }),
+    'data-deletion.html': renderDeletionPage({ site, fetchLimit: fetch.limit }),
+  };
+}
+
+async function readIfPresent(path) {
+  try {
+    return await (0,promises_.readFile)(path);
+  } catch (err) {
+    if (err.code === 'ENOENT') return null;
+    throw err;
+  }
+}
+
+// Writes only files whose bytes differ. With `dryRun` it reports the same
+// counts and touches nothing.
+async function syncFiles(root, { writes, deletes }, { dryRun = false } = {}) {
+  const result = { written: 0, deleted: 0, bytes: 0 };
+  for (const [relative, content] of Object.entries(writes)) {
+    const path = (0,external_node_path_.join)(root, relative);
+    const bytes = Buffer.from(content);
+    const current = await readIfPresent(path);
+    if (current?.equals(bytes)) continue;
+    result.written += 1;
+    result.bytes += bytes.length;
+    if (dryRun) continue;
+    await (0,promises_.mkdir)((0,external_node_path_.dirname)(path), { recursive: true });
+    await (0,promises_.writeFile)(path, bytes);
+  }
+  for (const relative of deletes) {
+    const path = (0,external_node_path_.join)(root, relative);
+    if ((await readIfPresent(path)) === null) continue;
+    result.deleted += 1;
+    if (!dryRun) await (0,promises_.rm)(path);
+  }
+  return result;
+}
+
+
+/***/ }),
+
+/***/ 8330:
+/***/ ((__unused_webpack___webpack_module__, __webpack_exports__, __nccwpck_require__) => {
+
+/* harmony export */ __nccwpck_require__.d(__webpack_exports__, {
+/* harmony export */   df: () => (/* binding */ commitMessage),
+/* harmony export */   lD: () => (/* binding */ createGit),
+/* harmony export */   tk: () => (/* binding */ commitAndPush)
+/* harmony export */ });
+/* harmony import */ var node_child_process__WEBPACK_IMPORTED_MODULE_0__ = __nccwpck_require__(1421);
+/* harmony import */ var _errors_js__WEBPACK_IMPORTED_MODULE_1__ = __nccwpck_require__(3247);
+// Commit and push with the git CLI. Argument arrays only, never a shell string.
+
+
+
+const IDENTITY = [
+  '-c', 'user.name=github-actions[bot]',
+  '-c', 'user.email=41898282+github-actions[bot]@users.noreply.github.com',
+  '-c', 'commit.gpgsign=false',
+];
+const REMOTE = 'origin';
+// A remote hook or branch protection reports "remote rejected"; rebasing won't
+// help there, so only a lost race gets the retry.
+const LOST_RACE = /\[rejected\]|fetch first|non-fast-forward/;
+
+function commitMessage({ added, removed, provider }) {
+  return `feed: +${added} new, -${removed} removed (${provider})`;
+}
+
+// Git's children (hooks, credential helpers) have no use for the action's inputs.
+function childEnv(env) {
+  const clean = Object.entries(env).filter(([key]) => !key.startsWith('INPUT_'));
+  return { ...Object.fromEntries(clean), GIT_TERMINAL_PROMPT: '0' };
+}
+
+function createGit({ cwd, env = process.env, execFile = node_child_process__WEBPACK_IMPORTED_MODULE_0__.execFile }) {
+  const options = { cwd, env: childEnv(env), encoding: 'utf8', timeout: 120_000, maxBuffer: 8 * 1024 * 1024 };
+  return (...args) =>
+    new Promise((resolve, reject) => {
+      execFile('git', [...IDENTITY, ...args], options, (err, stdout, stderr) => {
+        if (err) {
+          err.stderr = String(stderr ?? '').trim();
+          reject(err);
+        } else {
+          resolve(String(stdout).trim());
+        }
+      });
+    });
+}
+
+async function currentBranch(git) {
+  try {
+    return await git('symbolic-ref', '--short', '-q', 'HEAD');
+  } catch (err) {
+    throw new _errors_js__WEBPACK_IMPORTED_MODULE_1__/* .UserError */ .y(
+      `Cannot commit: the checkout is not on a branch (${err.stderr || 'detached HEAD'}). Run the workflow from a branch.`,
+      { cause: err },
+    );
+  }
+}
+
+function pushFailure(err) {
+  const hint = /403|denied/i.test(err.stderr) ? ' The workflow needs "permissions: contents: write".' : '';
+  return new _errors_js__WEBPACK_IMPORTED_MODULE_1__/* .UserError */ .y(`git push failed: ${err.stderr || err.message}.${hint}`, { cause: err });
+}
+
+async function hasStagedChanges(git, dir) {
+  try {
+    await git('diff', '--cached', '--quiet', '--', dir);
+    return false;
+  } catch (err) {
+    if (err.code === 1) return true;
+    throw err;
+  }
+}
+
+// Returns true if a commit was pushed, false if there was nothing to commit.
+// No force pushes. A lost race gets one fetch, one rebase and one more push.
+async function commitAndPush({ git, dir, message, logger }) {
+  try {
+    await git('add', '-A', '--', dir);
+    if (!(await hasStagedChanges(git, dir))) return false;
+  } catch (err) {
+    throw new _errors_js__WEBPACK_IMPORTED_MODULE_1__/* .UserError */ .y(`git failed while staging ${dir}: ${err.stderr || err.message}.`, { cause: err });
+  }
+  const branch = await currentBranch(git);
+  await git('commit', '-q', '-m', message, '--', dir);
+
+  const push = () => git('push', '-q', REMOTE, `HEAD:refs/heads/${branch}`);
+  try {
+    await push();
+    return true;
+  } catch (err) {
+    if (!LOST_RACE.test(err.stderr)) throw pushFailure(err);
+  }
+
+  logger.info(`push rejected; rebasing once onto ${REMOTE}/${branch}`);
+  try {
+    await git('fetch', '-q', REMOTE, `refs/heads/${branch}`);
+    await git('rebase', '-q', '--autostash', 'FETCH_HEAD');
+  } catch (err) {
+    await git('rebase', '--abort').catch(() => {});
+    throw new _errors_js__WEBPACK_IMPORTED_MODULE_1__/* .UserError */ .y(`Could not rebase onto ${REMOTE}/${branch}: ${err.stderr || err.message}. Nothing was pushed.`, { cause: err });
+  }
+  try {
+    await push();
+  } catch (err) {
+    throw new _errors_js__WEBPACK_IMPORTED_MODULE_1__/* .UserError */ .y(`git push was rejected again after one rebase: ${err.stderr || err.message}. The next run will try again.`, { cause: err });
+  }
+  return true;
+}
+
+
+/***/ }),
+
 /***/ 7024:
 /***/ ((__unused_webpack___webpack_module__, __webpack_exports__, __nccwpck_require__) => {
 
@@ -9057,17 +9728,27 @@ __nccwpck_require__.a(__webpack_module__, async (__webpack_handle_async_dependen
 /* harmony export */   Ko: () => (/* binding */ readInputs),
 /* harmony export */   eF: () => (/* binding */ run),
 /* harmony export */   iW: () => (/* binding */ main),
-/* harmony export */   yo: () => (/* reexport safe */ _errors_js__WEBPACK_IMPORTED_MODULE_8__.y)
+/* harmony export */   yo: () => (/* reexport safe */ _errors_js__WEBPACK_IMPORTED_MODULE_12__.y)
 /* harmony export */ });
 /* harmony import */ var node_fs__WEBPACK_IMPORTED_MODULE_0__ = __nccwpck_require__(3024);
 /* harmony import */ var node_url__WEBPACK_IMPORTED_MODULE_1__ = __nccwpck_require__(3136);
 /* harmony import */ var node_path__WEBPACK_IMPORTED_MODULE_2__ = __nccwpck_require__(6760);
+/* harmony import */ var _classify_js__WEBPACK_IMPORTED_MODULE_13__ = __nccwpck_require__(3206);
 /* harmony import */ var _config_js__WEBPACK_IMPORTED_MODULE_3__ = __nccwpck_require__(6770);
-/* harmony import */ var _log_js__WEBPACK_IMPORTED_MODULE_4__ = __nccwpck_require__(7024);
-/* harmony import */ var _errors_js__WEBPACK_IMPORTED_MODULE_8__ = __nccwpck_require__(3247);
-/* harmony import */ var _providers_fixtures_js__WEBPACK_IMPORTED_MODULE_5__ = __nccwpck_require__(8765);
-/* harmony import */ var _providers_index_js__WEBPACK_IMPORTED_MODULE_6__ = __nccwpck_require__(3045);
-/* harmony import */ var _thumbs_js__WEBPACK_IMPORTED_MODULE_7__ = __nccwpck_require__(2941);
+/* harmony import */ var _feed_js__WEBPACK_IMPORTED_MODULE_4__ = __nccwpck_require__(4451);
+/* harmony import */ var _git_js__WEBPACK_IMPORTED_MODULE_5__ = __nccwpck_require__(8330);
+/* harmony import */ var _log_js__WEBPACK_IMPORTED_MODULE_6__ = __nccwpck_require__(7024);
+/* harmony import */ var _errors_js__WEBPACK_IMPORTED_MODULE_12__ = __nccwpck_require__(3247);
+/* harmony import */ var _providers_fixtures_js__WEBPACK_IMPORTED_MODULE_7__ = __nccwpck_require__(8765);
+/* harmony import */ var _providers_index_js__WEBPACK_IMPORTED_MODULE_8__ = __nccwpck_require__(3045);
+/* harmony import */ var _state_js__WEBPACK_IMPORTED_MODULE_9__ = __nccwpck_require__(1715);
+/* harmony import */ var _thumbs_js__WEBPACK_IMPORTED_MODULE_10__ = __nccwpck_require__(472);
+/* harmony import */ var _token_js__WEBPACK_IMPORTED_MODULE_11__ = __nccwpck_require__(6425);
+
+
+
+
+
 
 
 
@@ -9082,14 +9763,14 @@ __nccwpck_require__.a(__webpack_module__, async (__webpack_handle_async_dependen
 
 function getInput(env, name, { required = false, fallback = '' } = {}) {
   const value = (env[`INPUT_${name.toUpperCase()}`] ?? '').trim();
-  if (required && value === '') throw new _errors_js__WEBPACK_IMPORTED_MODULE_8__/* .UserError */ .y(`Input "${name}" is required.`);
+  if (required && value === '') throw new _errors_js__WEBPACK_IMPORTED_MODULE_12__/* .UserError */ .y(`Input "${name}" is required.`);
   return value === '' ? fallback : value;
 }
 
 function parseBoolean(name, value) {
   if (value === 'true') return true;
   if (value === 'false') return false;
-  throw new _errors_js__WEBPACK_IMPORTED_MODULE_8__/* .UserError */ .y(`Input "${name}" must be "true" or "false", got "${value}".`);
+  throw new _errors_js__WEBPACK_IMPORTED_MODULE_12__/* .UserError */ .y(`Input "${name}" must be "true" or "false", got "${value}".`);
 }
 
 function readInputs(env) {
@@ -9101,9 +9782,9 @@ function readInputs(env) {
     secretsToken: getInput(env, 'secrets_token') || null,
     fixtureDir: getInput(env, 'fixture_dir') || null,
   };
-  if (!(0,_providers_index_js__WEBPACK_IMPORTED_MODULE_6__/* .providerNames */ .e)().includes(inputs.provider)) {
-    throw new _errors_js__WEBPACK_IMPORTED_MODULE_8__/* .UserError */ .y(
-      `Input "provider" must be one of: ${(0,_providers_index_js__WEBPACK_IMPORTED_MODULE_6__/* .providerNames */ .e)().join(', ')}. Got "${inputs.provider}".`,
+  if (!(0,_providers_index_js__WEBPACK_IMPORTED_MODULE_8__/* .providerNames */ .e)().includes(inputs.provider)) {
+    throw new _errors_js__WEBPACK_IMPORTED_MODULE_12__/* .UserError */ .y(
+      `Input "provider" must be one of: ${(0,_providers_index_js__WEBPACK_IMPORTED_MODULE_8__/* .providerNames */ .e)().join(', ')}. Got "${inputs.provider}".`,
     );
   }
   return inputs;
@@ -9113,9 +9794,58 @@ function setOutput(env, name, value) {
   if (env.GITHUB_OUTPUT) (0,node_fs__WEBPACK_IMPORTED_MODULE_0__.appendFileSync)(env.GITHUB_OUTPUT, `${name}=${value}\n`);
 }
 
-// `fetch`, `sleep` and `execFile` are injectable so tests never touch the
-// network, wait, or need a particular ImageMagick.
-async function run({ env = process.env, logger, fetch = globalThis.fetch, sleep, execFile } = {}) {
+// Refresh the token and store it if it changed. Returns the state record to
+// keep and, if the owner must act, a message that fails the run at the end, so
+// a token problem never costs today's feed update.
+async function maintainToken({ provider, inputs, state, env, logger, fetch, sleep, execFile, now }) {
+  let refreshed = null;
+  try {
+    refreshed = await provider.refreshToken({ token: inputs.token, fetch, sleep });
+    logger.addSecret(refreshed.token);
+  } catch (err) {
+    if (!(err instanceof _errors_js__WEBPACK_IMPORTED_MODULE_12__/* .UserError */ .y)) throw err;
+    // Normal for a token under 24 hours old.
+    logger.warning(`Could not refresh the access token: ${err.message}`);
+  }
+  const secretName = provider.TOKEN_SECRET;
+  const assessed = (0,_token_js__WEBPACK_IMPORTED_MODULE_11__/* .assessToken */ .am)({
+    token: inputs.token,
+    refreshed,
+    secretsToken: inputs.secretsToken,
+    record: state.token,
+    now,
+  });
+  let failure = null;
+  if (assessed.store) {
+    try {
+      await (0,_token_js__WEBPACK_IMPORTED_MODULE_11__/* .storeSecret */ .yV)({
+        name: secretName,
+        value: refreshed.token,
+        repository: env.GITHUB_REPOSITORY,
+        secretsToken: inputs.secretsToken,
+        env,
+        execFile,
+      });
+      logger.info(`token: stored the refreshed token in ${secretName}`);
+    } catch (err) {
+      failure = `Could not store the refreshed token in ${secretName}: ${err.stderr || err.code || err.message}. Check that secrets_token has Secrets write access to this repository.`;
+    }
+  }
+  if (assessed.untracked) {
+    logger.warning(
+      `Instagram returned a new token string and secrets_token is not set, so it cannot be saved. The ${secretName} secret is treated as expiring on ${assessed.expiresAt.slice(0, 10)}.`,
+    );
+  }
+  if (assessed.expiresAt) logger.info(`token: expires ${assessed.expiresAt.slice(0, 10)}`);
+  return {
+    record: assessed.record,
+    failure: failure ?? (0,_token_js__WEBPACK_IMPORTED_MODULE_11__/* .expiryFailure */ .em)({ expiresAt: assessed.expiresAt, now, secretName }),
+  };
+}
+
+// `fetch`, `sleep`, `execFile` and `now` are injectable so tests never touch
+// the network, wait, or need a particular ImageMagick or clock.
+async function run({ env = process.env, logger, fetch = globalThis.fetch, sleep, execFile, now = Date.now } = {}) {
   const inputs = readInputs(env);
   logger.addSecret(inputs.token);
   if (inputs.secretsToken) logger.addSecret(inputs.secretsToken);
@@ -9123,10 +9853,10 @@ async function run({ env = process.env, logger, fetch = globalThis.fetch, sleep,
   const workspace = env.GITHUB_WORKSPACE || process.cwd();
   const config = (0,_config_js__WEBPACK_IMPORTED_MODULE_3__/* .loadConfig */ .Z9)((0,node_path__WEBPACK_IMPORTED_MODULE_2__.resolve)(workspace, inputs.config), {
     file: inputs.config,
-    providers: (0,_providers_index_js__WEBPACK_IMPORTED_MODULE_6__/* .providerNames */ .e)(),
+    providers: (0,_providers_index_js__WEBPACK_IMPORTED_MODULE_8__/* .providerNames */ .e)(),
   });
   if (config.provider && config.provider !== inputs.provider) {
-    throw new _errors_js__WEBPACK_IMPORTED_MODULE_8__/* .UserError */ .y(
+    throw new _errors_js__WEBPACK_IMPORTED_MODULE_12__/* .UserError */ .y(
       `${inputs.config}: provider is "${config.provider}" but the workflow input is "${inputs.provider}". Make them match.`,
     );
   }
@@ -9137,13 +9867,20 @@ async function run({ env = process.env, logger, fetch = globalThis.fetch, sleep,
   );
 
   // Before any network call, so a missing tool fails the run immediately.
-  const tool = await (0,_thumbs_js__WEBPACK_IMPORTED_MODULE_7__/* .preflight */ .Mz)({ execFile, format: config.thumbnails.format });
+  const tool = await (0,_thumbs_js__WEBPACK_IMPORTED_MODULE_10__/* .preflight */ .Mz)({ execFile, format: config.thumbnails.format });
   if (tool.format !== config.thumbnails.format) {
     logger.warning('ImageMagick cannot write WebP here; thumbnails will be JPEG.');
   }
 
-  const providerFetch = inputs.fixtureDir ? (0,_providers_fixtures_js__WEBPACK_IMPORTED_MODULE_5__/* .createFixtureFetch */ .A)((0,node_path__WEBPACK_IMPORTED_MODULE_2__.resolve)(workspace, inputs.fixtureDir)) : fetch;
-  const provider = (0,_providers_index_js__WEBPACK_IMPORTED_MODULE_6__/* .getProvider */ .s)(inputs.provider);
+  const root = (0,node_path__WEBPACK_IMPORTED_MODULE_2__.join)(workspace, config.output.dir);
+  const loaded = await (0,_state_js__WEBPACK_IMPORTED_MODULE_9__/* .loadState */ .C7)((0,node_path__WEBPACK_IMPORTED_MODULE_2__.join)(root, 'index.json'), { file: `${config.output.dir}/index.json` });
+  // Deleting an item's page from the repo is how an owner removes an old post
+  // by hand, so an entry without a page leaves the index too.
+  const pageless = loaded.items.filter((item) => !(0,node_fs__WEBPACK_IMPORTED_MODULE_0__.existsSync)((0,node_path__WEBPACK_IMPORTED_MODULE_2__.join)(root, item.page)));
+  const state = { ...loaded, items: loaded.items.filter((item) => !pageless.includes(item)) };
+
+  const providerFetch = inputs.fixtureDir ? (0,_providers_fixtures_js__WEBPACK_IMPORTED_MODULE_7__/* .createFixtureFetch */ .A)((0,node_path__WEBPACK_IMPORTED_MODULE_2__.resolve)(workspace, inputs.fixtureDir)) : fetch;
+  const provider = (0,_providers_index_js__WEBPACK_IMPORTED_MODULE_8__/* .getProvider */ .s)(inputs.provider);
   const { items, skipped } = await provider.fetchItems({
     token: inputs.token,
     limit: config.fetch.limit,
@@ -9152,14 +9889,65 @@ async function run({ env = process.env, logger, fetch = globalThis.fetch, sleep,
   });
   for (const { id, reason } of skipped) logger.warning(`Skipped ${inputs.provider} item ${id}: ${reason}.`);
 
-  // Provisional until state lands (M6): treat the newest `backfill` items as new.
-  const fresh = items.slice(0, config.fetch.backfill);
-  const thumbnail = (0,_thumbs_js__WEBPACK_IMPORTED_MODULE_7__/* .createThumbnailer */ .oD)({ settings: config.thumbnails, tool, fetch: providerFetch, execFile });
-  let thumbBytes = 0;
-  for (const item of fresh) thumbBytes += (await thumbnail(item)).bytes;
-  logger.info(`thumbnails: ${fresh.length} built with ${tool.command} as ${tool.format}, ${thumbBytes} bytes`);
+  const plan = (0,_state_js__WEBPACK_IMPORTED_MODULE_9__/* .planUpdate */ .ZL)({
+    state,
+    provider: inputs.provider,
+    fetched: items,
+    skippedIds: skipped.map(({ id }) => id),
+    backfill: config.fetch.backfill,
+    maxItems: config.output.max_items,
+  });
 
-  const result = { fetched: items.length, added: 0, removed: 0, kept: 0, changed: false };
+  // A dry run changes nothing, and a refresh may rotate the token. Fixture runs
+  // have no real token to refresh.
+  const maintenance =
+    inputs.dryRun || inputs.fixtureDir
+      ? { record: state.token ?? null, failure: null }
+      : await maintainToken({ provider, inputs, state, env, logger, fetch, sleep, execFile, now: now() });
+
+  const classify = (0,_classify_js__WEBPACK_IMPORTED_MODULE_13__/* .createClassifier */ .CC)(config);
+  const thumbnail = (0,_thumbs_js__WEBPACK_IMPORTED_MODULE_10__/* .createThumbnailer */ .oD)({ settings: config.thumbnails, tool, fetch: providerFetch, execFile });
+  const writes = {};
+  const entries = [];
+  let thumbBytes = 0;
+  for (const item of plan.added) {
+    const thumb = await thumbnail(item);
+    thumbBytes += thumb.bytes;
+    const entry = (0,_feed_js__WEBPACK_IMPORTED_MODULE_4__/* .buildEntry */ .Jo)(item, classify(item), thumb.tiny);
+    entries.push(entry);
+    writes[entry.page] = (0,_feed_js__WEBPACK_IMPORTED_MODULE_4__/* .renderItemFile */ .Wu)(config.site, entry, item.caption, thumb.full);
+    logger.info(`new: ${entry.page} [${entry.category}]`);
+  }
+  logger.info(`thumbnails: ${plan.added.length} built with ${tool.command} as ${tool.format}, ${thumbBytes} bytes`);
+
+  const next = { version: state.version, items: [...plan.kept, ...entries].sort(_state_js__WEBPACK_IMPORTED_MODULE_9__/* .compareItems */ .Q9) };
+  if (maintenance.record) next.token = maintenance.record;
+  Object.assign(writes, (0,_feed_js__WEBPACK_IMPORTED_MODULE_4__/* .renderSharedFiles */ .HW)(config, next));
+
+  const gone = [...pageless, ...plan.removed, ...plan.pruned];
+  const synced = await (0,_feed_js__WEBPACK_IMPORTED_MODULE_4__/* .syncFiles */ .fl)(root, { writes, deletes: gone.map((item) => item.page) }, { dryRun: inputs.dryRun });
+  logger.info(
+    `${inputs.dryRun ? 'dry run, would write' : 'wrote'} ${synced.written} files (${synced.bytes} bytes), ` +
+      `${inputs.dryRun ? 'would delete' : 'deleted'} ${synced.deleted}`,
+  );
+
+  const result = {
+    fetched: items.length,
+    added: plan.added.length,
+    removed: gone.length,
+    kept: plan.kept.length,
+    changed: false,
+  };
+  if (!inputs.dryRun) {
+    result.changed = await (0,_git_js__WEBPACK_IMPORTED_MODULE_5__/* .commitAndPush */ .tk)({
+      git: (0,_git_js__WEBPACK_IMPORTED_MODULE_5__/* .createGit */ .lD)({ cwd: workspace, env, execFile }),
+      dir: config.output.dir,
+      message: (0,_git_js__WEBPACK_IMPORTED_MODULE_5__/* .commitMessage */ .df)({ added: result.added, removed: result.removed, provider: inputs.provider }),
+      logger,
+    });
+    if (!result.changed) logger.info('no changes');
+  }
+
   logger.notice(
     `${inputs.provider}: fetched ${result.fetched}, +${result.added} new, ` +
       `-${result.removed} removed, ${result.kept} kept`,
@@ -9174,11 +9962,12 @@ async function run({ env = process.env, logger, fetch = globalThis.fetch, sleep,
     ].join('\n'),
   );
   setOutput(env, 'changed', String(result.changed));
+  if (maintenance.failure) throw new _errors_js__WEBPACK_IMPORTED_MODULE_12__/* .UserError */ .y(maintenance.failure);
   return result;
 }
 
 async function main(env = process.env) {
-  const logger = (0,_log_js__WEBPACK_IMPORTED_MODULE_4__/* .createLogger */ .h)({
+  const logger = (0,_log_js__WEBPACK_IMPORTED_MODULE_6__/* .createLogger */ .h)({
     summaryPath: env.GITHUB_STEP_SUMMARY || null,
     mask: env.GITHUB_ACTIONS === 'true',
   });
@@ -9187,7 +9976,7 @@ async function main(env = process.env) {
   } catch (err) {
     // UserErrors carry a message written for the reader; anything else is a
     // bug, but we still avoid dumping a stack that could hold request data.
-    const message = err instanceof _errors_js__WEBPACK_IMPORTED_MODULE_8__/* .UserError */ .y ? err.message : `Unexpected error: ${err.message}`;
+    const message = err instanceof _errors_js__WEBPACK_IMPORTED_MODULE_12__/* .UserError */ .y ? err.message : `Unexpected error: ${err.message}`;
     logger.error(message);
     process.exitCode = 1;
   }
@@ -9206,6 +9995,46 @@ if (isEntrypoint()) await main();
 
 __webpack_async_result__();
 } catch(e) { __webpack_async_result__(e); } }, 1);
+
+/***/ }),
+
+/***/ 3825:
+/***/ ((__unused_webpack___webpack_module__, __webpack_exports__, __nccwpck_require__) => {
+
+/* harmony export */ __nccwpck_require__.d(__webpack_exports__, {
+/* harmony export */   Ft: () => (/* binding */ extractHashtags),
+/* harmony export */   KC: () => (/* binding */ removeHashtags),
+/* harmony export */   S8: () => (/* binding */ normalize)
+/* harmony export */ });
+// Text normalization shared by captions and rule terms, so both sides of every
+// comparison went through the same steps.
+
+const COMBINING_MARKS = /\p{M}/gu;
+const WHITESPACE = /\s+/gu;
+// A hashtag is # followed by letters, digits, or underscore, in any script.
+const HASHTAG = /#([\p{L}\p{N}_]+)/gu;
+
+function normalize(text) {
+  return String(text ?? '')
+    .normalize('NFKC')
+    .normalize('NFD')
+    .replace(COMBINING_MARKS, '')
+    .toLowerCase()
+    .replace(WHITESPACE, ' ')
+    .trim();
+}
+
+// Expects normalized text. Returns tags without the #, in order of appearance.
+function extractHashtags(normalized) {
+  return [...normalized.matchAll(HASHTAG)].map((match) => match[1]);
+}
+
+// Expects normalized text. Keywords match against what is left, so a hashtag
+// is not counted twice.
+function removeHashtags(normalized) {
+  return normalized.replace(HASHTAG, ' ').replace(WHITESPACE, ' ').trim();
+}
+
 
 /***/ }),
 
@@ -9275,10 +10104,12 @@ __nccwpck_require__.d(instagram_namespaceObject, {
   FIELDS: () => (FIELDS),
   RETRY_DELAYS_MS: () => (RETRY_DELAYS_MS),
   TOKEN_MESSAGE: () => (TOKEN_MESSAGE),
+  TOKEN_SECRET: () => (TOKEN_SECRET),
   fetchItems: () => (fetchItems),
   mediaUrl: () => (mediaUrl),
   name: () => (instagram_name),
   normalizeMedia: () => (normalizeMedia),
+  refreshToken: () => (refreshToken),
   requestJson: () => (requestJson)
 });
 
@@ -9303,6 +10134,7 @@ const FIELDS = [
   'timestamp',
 ];
 const RETRY_DELAYS_MS = [1000, 4000, 16000];
+const TOKEN_SECRET = 'INSTAGRAM_TOKEN';
 const TOKEN_MESSAGE =
   'Token expired or invalid; regenerate it and update the INSTAGRAM_TOKEN secret.';
 
@@ -9481,6 +10313,19 @@ async function fetchItems({ token, limit, fetch = globalThis.fetch, sleep = defa
   return { items, skipped };
 }
 
+// Extends a long-lived token. Meta requires it to be at least 24 hours old, and
+// documents no error code for "too young", so the caller treats any failure here
+// as a warning: fetching media is what proves the token works.
+async function refreshToken({ token, fetch = globalThis.fetch, sleep = defaultSleep }) {
+  const url = new URL(`https://${API_HOST}/refresh_access_token`);
+  url.searchParams.set('grant_type', 'ig_refresh_token');
+  url.searchParams.set('access_token', token);
+  const body = await requestJson(url.toString(), { fetch, sleep });
+  if (typeof body.access_token !== 'string' || body.access_token === '') throw malformed('no access_token');
+  if (!Number.isFinite(body.expires_in) || body.expires_in <= 0) throw malformed('no expires_in');
+  return { token: body.access_token, expiresIn: body.expires_in };
+}
+
 ;// CONCATENATED MODULE: ./src/providers/index.js
 
 
@@ -9501,7 +10346,148 @@ function getProvider(name) {
 
 /***/ }),
 
-/***/ 2941:
+/***/ 1715:
+/***/ ((__unused_webpack___webpack_module__, __webpack_exports__, __nccwpck_require__) => {
+
+/* harmony export */ __nccwpck_require__.d(__webpack_exports__, {
+/* harmony export */   C7: () => (/* binding */ loadState),
+/* harmony export */   HX: () => (/* binding */ pagePath),
+/* harmony export */   Q9: () => (/* binding */ compareItems),
+/* harmony export */   ZL: () => (/* binding */ planUpdate),
+/* harmony export */   sU: () => (/* binding */ serializeState)
+/* harmony export */ });
+/* unused harmony exports STATE_VERSION, emptyState, parseState */
+/* harmony import */ var node_fs_promises__WEBPACK_IMPORTED_MODULE_0__ = __nccwpck_require__(1455);
+/* harmony import */ var _errors_js__WEBPACK_IMPORTED_MODULE_1__ = __nccwpck_require__(3247);
+// The feed's only memory: feed/index.json. Parsing and planning are pure; the
+// plan says what changes, and main.js carries it out.
+
+
+
+const STATE_VERSION = 1;
+const ID = /^[A-Za-z0-9_-]{1,64}$/;
+const PROVIDER = /^[a-z]+$/;
+const TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+const TEXT_FIELDS = ['type', 'category', 'title', 'permalink', 'tn'];
+
+const emptyState = () => ({ version: STATE_VERSION, items: [] });
+const pagePath = (provider, id) => `p/${provider}-${id}.html`;
+
+const keyOf = (item) => `${item.provider}/${item.id}`;
+
+// Newest first, ties by id. Plain string comparison: locale-aware ordering
+// could differ between Node versions and break byte-identical output.
+function compareItems(a, b) {
+  if (a.timestamp !== b.timestamp) return a.timestamp < b.timestamp ? 1 : -1;
+  if (a.id === b.id) return 0;
+  return a.id < b.id ? -1 : 1;
+}
+
+function itemProblem(item) {
+  if (item === null || typeof item !== 'object' || Array.isArray(item)) return 'is not an object';
+  if (typeof item.id !== 'string' || !ID.test(item.id)) return 'has an invalid id';
+  if (typeof item.provider !== 'string' || !PROVIDER.test(item.provider)) return 'has an invalid provider';
+  if (typeof item.timestamp !== 'string' || !TIMESTAMP.test(item.timestamp)) return 'has an invalid timestamp';
+  // The page path decides which file a prune deletes, so it must be exactly
+  // the one this item's id produces. A hand-edited "../../x" stops here.
+  if (item.page !== pagePath(item.provider, item.id)) return 'has an unexpected page path';
+  const field = TEXT_FIELDS.find((name) => typeof item[name] !== 'string');
+  return field ? `has no ${field}` : null;
+}
+
+function tokenProblem(token) {
+  const valid =
+    token !== null &&
+    typeof token === 'object' &&
+    typeof token.fingerprint === 'string' &&
+    typeof token.expires_at === 'string' &&
+    TIMESTAMP.test(token.expires_at);
+  return valid ? null : 'token is not a valid record';
+}
+
+function parseState(text, file = 'index.json') {
+  const fail = (detail) => new _errors_js__WEBPACK_IMPORTED_MODULE_1__/* .UserError */ .y(`${file}: ${detail}. Fix the file, or delete it to rebuild the feed.`);
+  let raw;
+  try {
+    raw = JSON.parse(text);
+  } catch {
+    throw fail('not valid JSON');
+  }
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) throw fail('not a JSON object');
+  if (raw.version !== STATE_VERSION) throw fail(`unsupported version ${JSON.stringify(raw.version)}`);
+  if (!Array.isArray(raw.items)) throw fail('items is not a list');
+  raw.items.forEach((item, i) => {
+    const problem = itemProblem(item);
+    if (problem) throw fail(`item ${i + 1} ${problem}`);
+  });
+  const state = { version: STATE_VERSION, items: [...raw.items].sort(compareItems) };
+  if (raw.token !== undefined) {
+    const problem = tokenProblem(raw.token);
+    if (problem) throw fail(problem);
+    state.token = raw.token;
+  }
+  return state;
+}
+
+async function loadState(path, { file = path, read = node_fs_promises__WEBPACK_IMPORTED_MODULE_0__.readFile } = {}) {
+  let text;
+  try {
+    text = await read(path, 'utf8');
+  } catch (err) {
+    if (err.code === 'ENOENT') return emptyState();
+    throw err;
+  }
+  return parseState(text, file);
+}
+
+function sortKeys(value) {
+  if (Array.isArray(value)) return value.map(sortKeys);
+  if (value === null || typeof value !== 'object') return value;
+  return Object.fromEntries(
+    Object.keys(value)
+      .sort()
+      .map((key) => [key, sortKeys(value[key])]),
+  );
+}
+
+// Sorted keys and a fixed indent, so an unchanged feed gives unchanged bytes.
+function serializeState(state) {
+  return `${JSON.stringify(sortKeys({ ...state, items: [...state.items].sort(compareItems) }), null, 2)}\n`;
+}
+
+// Decide what a run changes (BRIEF.md section 11, steps 3, 4 and 6).
+// `fetched` are normalized items; `skippedIds` are posts the adapter returned
+// but could not use. They still exist, so they must not read as deleted.
+function planUpdate({ state, provider, fetched, skippedIds = [], backfill, maxItems }) {
+  const known = new Set(state.items.map(keyOf));
+  const returned = new Set([...fetched.map((item) => item.id), ...skippedIds]);
+  const windowStart = fetched.reduce((oldest, item) => (item.timestamp < oldest ? item.timestamp : oldest), '\uffff');
+
+  const isDeleted = (item) => item.provider === provider && item.timestamp >= windowStart && !returned.has(item.id);
+  const removed = state.items.filter(isDeleted);
+  const survivors = state.items.filter((item) => !isDeleted(item));
+
+  // Posts older than the feed's oldest are not new: they are what backfill
+  // left out or max_items dropped, and adding them would undo that.
+  const own = survivors.filter((item) => item.provider === provider);
+  const floor = own.reduce((oldest, item) => (item.timestamp < oldest ? item.timestamp : oldest), '\uffff');
+  const unseen = fetched.filter((item) => !known.has(keyOf(item))).sort(compareItems);
+  const candidates = own.length === 0 ? unseen.slice(0, backfill) : unseen.filter((item) => item.timestamp >= floor);
+
+  // Capping here means a post that would be dropped at once costs no download.
+  const inWindow = new Set([...survivors, ...candidates].sort(compareItems).slice(0, maxItems).map(keyOf));
+  return {
+    added: candidates.filter((item) => inWindow.has(keyOf(item))),
+    removed,
+    pruned: survivors.filter((item) => !inWindow.has(keyOf(item))),
+    kept: survivors.filter((item) => inWindow.has(keyOf(item))),
+  };
+}
+
+
+/***/ }),
+
+/***/ 472:
 /***/ ((__unused_webpack___webpack_module__, __webpack_exports__, __nccwpck_require__) => {
 
 
@@ -9513,8 +10499,8 @@ __nccwpck_require__.d(__webpack_exports__, {
 
 // UNUSED EXPORTS: INSTALL_HINT, MAX_DOWNLOAD_BYTES, QUALITY_FLOOR, QUALITY_STEP, TARGET_SIZE_RATIO, detectCoder, encodeArgs, supportsWebpWrite
 
-;// CONCATENATED MODULE: external "node:child_process"
-const external_node_child_process_namespaceObject = __WEBPACK_EXTERNAL_createRequire(import.meta.url)("node:child_process");
+// EXTERNAL MODULE: external "node:child_process"
+var external_node_child_process_ = __nccwpck_require__(1421);
 // EXTERNAL MODULE: external "node:fs/promises"
 var promises_ = __nccwpck_require__(1455);
 ;// CONCATENATED MODULE: external "node:os"
@@ -9581,7 +10567,7 @@ function supportsWebpWrite(listing) {
 
 // Find ImageMagick 7 (`magick`) or 6 (`convert`, what Ubuntu ships), and
 // check for a WebP encoder. Fails early with the exact fix.
-async function preflight({ execFile = external_node_child_process_namespaceObject.execFile, format = 'webp' } = {}) {
+async function preflight({ execFile = external_node_child_process_.execFile, format = 'webp' } = {}) {
   let command = null;
   for (const candidate of ['magick', 'convert']) {
     try {
@@ -9639,7 +10625,7 @@ const dataUri = (format, bytes) => `data:${MIME[format]};base64,${bytes.toString
 // Returns async (item) => ({ full, tiny, bytes }). `tool` comes from preflight().
 // Any failure throws a UserError naming the item, which fails the whole run:
 // a run never commits a partial set of items.
-function createThumbnailer({ settings, tool, fetch = globalThis.fetch, execFile = external_node_child_process_namespaceObject.execFile, tempRoot = (0,external_node_os_namespaceObject.tmpdir)() }) {
+function createThumbnailer({ settings, tool, fetch = globalThis.fetch, execFile = external_node_child_process_.execFile, tempRoot = (0,external_node_os_namespaceObject.tmpdir)() }) {
   const { format, command } = tool;
 
   async function encode(input, coder, width, quality, targetSize) {
@@ -9685,6 +10671,92 @@ function createThumbnailer({ settings, tool, fetch = globalThis.fetch, execFile 
       await (0,promises_.rm)(dir, { recursive: true, force: true });
     }
   };
+}
+
+
+/***/ }),
+
+/***/ 6425:
+/***/ ((__unused_webpack___webpack_module__, __webpack_exports__, __nccwpck_require__) => {
+
+
+// EXPORTS
+__nccwpck_require__.d(__webpack_exports__, {
+  am: () => (/* binding */ assessToken),
+  em: () => (/* binding */ expiryFailure),
+  yV: () => (/* binding */ storeSecret)
+});
+
+// UNUSED EXPORTS: EXPIRY_WARNING_DAYS, fingerprint
+
+// EXTERNAL MODULE: external "node:child_process"
+var external_node_child_process_ = __nccwpck_require__(1421);
+;// CONCATENATED MODULE: external "node:crypto"
+const external_node_crypto_namespaceObject = __WEBPACK_EXTERNAL_createRequire(import.meta.url)("node:crypto");
+;// CONCATENATED MODULE: ./src/token.js
+// Access-token upkeep. Meta documents no way to look up a token's expiry and
+// does not say whether the old token survives a refresh, so this assumes the
+// worst of both. See docs/decisions.md, section 17.2.
+
+
+
+const EXPIRY_WARNING_DAYS = 14;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+// Enough to notice the secret was rotated. One-way, and the token has far too
+// much entropy to guess from it.
+function fingerprint(token) {
+  return (0,external_node_crypto_namespaceObject.createHash)('sha256').update(token).digest('hex').slice(0, 16);
+}
+
+// Pure. `refreshed` is { token, expiresIn } or null if the refresh failed.
+// Returns the record to keep in state (or null), whether to store a new token,
+// and when the token this workflow will use next actually expires, if known.
+function assessToken({ token, refreshed, secretsToken, record, now }) {
+  const tracked = record?.fingerprint === fingerprint(token) ? record : null;
+  if (!refreshed) return { record: record ?? null, store: false, expiresAt: tracked?.expires_at ?? null };
+
+  const refreshedUntil = new Date(now + refreshed.expiresIn * 1000).toISOString();
+  const changed = refreshed.token !== token;
+  if (!changed || secretsToken) return { record: null, store: changed, expiresAt: refreshedUntil };
+
+  // A new string we cannot store: the secret still holds the old token, which
+  // this refresh may not have extended. Count from the first day we saw it.
+  const kept = tracked ?? { fingerprint: fingerprint(token), expires_at: refreshedUntil };
+  return { record: kept, store: false, expiresAt: kept.expires_at, untracked: !tracked };
+}
+
+function expiryFailure({ expiresAt, now, secretName }) {
+  if (!expiresAt) return null;
+  const days = Math.floor((Date.parse(expiresAt) - now) / DAY_MS);
+  if (days > EXPIRY_WARNING_DAYS) return null;
+  return (
+    `The access token expires on ${expiresAt.slice(0, 10)} (${days} days left). Generate a new long-lived token and ` +
+    `update the ${secretName} secret, or set the secrets_token input so the action stores refreshed tokens itself. ` +
+    'Steps are in docs/setup-instagram.md.'
+  );
+}
+
+// `gh secret set` encrypts the value the way the GitHub API requires, and it is
+// on every GitHub-hosted runner, so no crypto dependency is needed. The value
+// goes over stdin, never argv, where it would show up in a process listing.
+function storeSecret({ name, value, repository, secretsToken, env = process.env, execFile = external_node_child_process_.execFile }) {
+  const options = {
+    env: { PATH: env.PATH, HOME: env.HOME, GH_TOKEN: secretsToken },
+    encoding: 'utf8',
+    timeout: 60_000,
+  };
+  return new Promise((resolve, reject) => {
+    const child = execFile('gh', ['secret', 'set', name, '--repo', repository], options, (err, _stdout, stderr) => {
+      if (err) {
+        err.stderr = String(stderr ?? '').trim();
+        reject(err);
+      } else {
+        resolve();
+      }
+    });
+    child.stdin.end(value);
+  });
 }
 
 

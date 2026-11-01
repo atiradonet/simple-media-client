@@ -43,7 +43,19 @@ Source: `reference/refresh_access_token`.
 - Response: `{ "access_token", "token_type": "bearer", "expires_in": <seconds> }`, about 60 days.
 - Not documented: whether the old token stays valid, and any refresh rate limit.
 
-**Open, settle in M6:** whether refresh returns the same token string. Design so either answer works: if the string is unchanged, the stored secret is already extended; if it changed, store it via `secrets_token` or warn.
+Rechecked 2026-11-02. The docs still don't say whether the old token survives a refresh, or set a refresh limit, and they document no way to look up a token's expiry. Third-party write-ups disagree on whether the old token keeps working. The docs' sample response shows a different string from the sample request.
+
+Decision: assume nothing, and handle every answer. Each non-dry run calls refresh after a successful fetch:
+
+- **Same string returned:** the secret is already extended. Expiry is now + `expires_in`.
+- **New string, `secrets_token` set:** stored with `gh secret set`, over stdin. `gh` is on every GitHub-hosted runner and does the sealed-box encryption the API requires, so this needs no crypto dependency (Node has no XSalsa20).
+- **New string, no `secrets_token`:** it can't be saved, and the old token may not have been extended. `index.json` gets a `token` record: a 16-hex-character SHA-256 fingerprint of the secret, and first-seen + `expires_in` as a worst-case expiry. The date never moves while the fingerprint matches, so this adds one commit and no daily diffs. Rotating the secret changes the fingerprint and restarts the count. If the old token actually was extended, the cost is an unneeded rotation every 46 days.
+- **Refresh fails:** a warning, not a failure. It's normal for a token under 24 hours old, and fetching media has already proved the token works. If the old token stops working, the next fetch fails with the code 190 message.
+- **14 days or fewer left, or the store failed:** the run fails *after* pushing, so a token problem doesn't cost that day's update. The example workflow's Pages step uses `!cancelled()` so it still runs.
+
+Dry runs and fixture runs don't refresh: a refresh may rotate the token, and a dry run changes nothing.
+
+**Open:** the live smoke test (14.8) shows which of these cases Instagram actually takes.
 
 ## 17.3 Pages rebuild on bot pushes
 
@@ -53,7 +65,7 @@ Decision: the action sets an output `changed` (`true`/`false`). The example work
 - **Deploy from branch:** calls `POST /repos/{repo}/pages/builds` with `gh api` when `changed == 'true'` (needs `pages: write`).
 - **Actions-based Pages:** runs `actions/upload-pages-artifact` + `actions/deploy-pages` in the same workflow.
 
-**Open:** the e2e workflow confirms the build request works with `GITHUB_TOKEN`.
+**Open:** Pages isn't enabled on this repo, so e2e can't exercise the build request. The live smoke test (14.8) confirms it works with `GITHUB_TOKEN`.
 
 ## 17.4 ImageMagick on `ubuntu-latest`
 
@@ -108,6 +120,20 @@ Source: GitHub docs, "Disabling and enabling a workflow". Scheduled workflows in
 - **Category order on the index:** config categories in file order, then the fallback, then categories that only older items still carry (alphabetical). Empty groups are not shown.
 - **html-validate:** `html-validate:recommended`, with `doctype-style` set to lowercase (the brief specifies `<!doctype html>`) and `long-title` off (an SEO preference, not part of the HTML standard).
 - **Size budget:** an item page with a thumbnail at `max_bytes` (40,000) and a 2,200-character plain caption is about 59 KB, under the 60 KB budget. A caption made almost entirely of `&` or `<` (each escaped to 4–5 characters) can exceed it. Accepted as an edge case.
+
+## State and commit choices (M6)
+
+- **A post is new only if it's at least as new as the feed's oldest item.** Taken literally, section 11 step 3 would add the posts backfill left out on the very next run, which breaks idempotence (14.3 test 2) and backfill itself. The same rule stops posts dropped by `max_items` from coming back.
+- **When no item of this provider survives, the feed backfills again.** This includes every item being deleted.
+- **`backfill: 0` keeps the feed empty.** An empty state has no marker for "started on this day", so nothing is ever added. Literal reading of the brief; the README must say so.
+- **Skipped posts don't count as deleted.** A post the adapter skipped (say, a missing thumbnail) still exists on Instagram.
+- **Deletion only touches the run's provider,** so a future `manual` item is never removed by an Instagram run.
+- **`index.json` is validated on load.** Each `page` must be exactly `p/<provider>-<id>.html`, because prunes delete that path. A bad file fails the run with a plain message.
+- **An index entry whose page file is gone is dropped,** and counts as removed. This is what the deletion page promises: delete an old post's page from the repo. A post still inside the fetch window comes back on the next run, so it must be deleted on Instagram too.
+- **Only a lost race gets the rebase retry.** A remote hook or branch protection ("remote rejected") fails at once. A rebase conflict aborts and fails. Tested against a shallow clone, since `actions/checkout` makes one.
+- **A detached checkout fails** with a plain message rather than guessing a branch.
+- **Git runs without the `INPUT_*` variables,** so hooks and credential helpers never see the token. `gh` gets only `PATH`, `HOME` and `GH_TOKEN`.
+- **E2E pushes to a scratch branch** and deletes it, so `main` never receives fixture data.
 
 ## Other choices
 
