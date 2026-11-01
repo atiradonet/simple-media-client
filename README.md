@@ -1,6 +1,8 @@
 # simple-media-client
 
-A GitHub Action that turns an Instagram account's posts into a small static feed in your GitHub Pages repo. It runs once a day on GitHub's runners and costs nothing on a public repo. There's no server, no database and no AI.
+A GitHub Action that turns an Instagram account's posts into a small static feed in your GitHub Pages repo. It runs once a day on GitHub's runners, with no server, no database and no AI.
+
+**Using this action requires a paid license.** See [License](#license).
 
 Each run fetches the latest posts, skips those it has seen, sorts new ones into categories using rules you edit, writes one HTML page per post, removes deleted and old posts, and commits the result.
 
@@ -22,6 +24,7 @@ Each run fetches the latest posts, skips those it has seen, sorts new ones into 
 
 ## Prerequisites
 
+- A paid license for this action. See [License](#license).
 - An Instagram Business or Creator account. Personal accounts can't use the API.
 - A Meta developer app of your own, using Instagram API with Instagram Login, with your account added as a tester.
 - A long-lived access token.
@@ -208,8 +211,9 @@ Deleting only the file doesn't work for a recent post, because the next run sees
 
 ## Limits and costs
 
+- **License:** using the action requires a paid license. The items below are the separate running costs.
 - **Storage:** about 40 KB per post, so the default 200-post window is about 8 MB. Git history grows as posts come and go, but slowly.
-- **Runner time:** under a minute a day, free on a public repo. A private repo works too, but uses your Actions minutes, and Pages on a private repo needs a paid plan.
+- **Runner time:** under a minute a day, and GitHub doesn't charge for it on a public repo. A private repo works too, but uses your Actions minutes, and Pages on a private repo needs a paid plan.
 - **[GitHub Pages limits](https://docs.github.com/en/pages/getting-started-with-github-pages/github-pages-limits):** 1 GB published site, a soft limit of 100 GB of bandwidth per month, and a soft limit of 10 builds per hour. One commit a day is well inside these.
 - **Network:** the action only contacts the Instagram API and its image CDN, and GitHub for the push and, if you set `secrets_token`, for storing the token.
 
@@ -222,6 +226,10 @@ Deleting only the file doesn't work for a recent post, because the next run sees
 - Your repo is public, so everything the feed stores can be read there, including in git history after a post is removed.
 - Meta expects live apps to have a privacy policy and a deletion route. The generated pages are meant to fill those, at `feed/privacy.html` and `feed/data-deletion.html`.
 - You're responsible for following Meta's current [Platform Terms](https://developers.facebook.com/terms/) and [Developer Policies](https://developers.facebook.com/devpolicy/).
+
+## License
+
+This is commercial software, and the source being public doesn't make it open source. To use, run, copy, modify or distribute it, including through `uses:` in a workflow, you need a paid license granted in writing by atiradonet. To request one, [open an issue](https://github.com/atiradonet/simple-media-client/issues). The full terms are in [LICENSE](LICENSE). Bundled third-party components keep their own licenses, listed in [dist/licenses.txt](dist/licenses.txt).
 
 ## Development
 

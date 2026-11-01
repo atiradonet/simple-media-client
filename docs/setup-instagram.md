@@ -1,6 +1,6 @@
 # Instagram setup
 
-This guide gets you from an Instagram account to a live feed: a Meta app, a token, the first dry run, and the first real run. Allow about 30 minutes. Meta renames dashboard menus often, so if a label below doesn't match, look for the closest one. Meta's [Get Started page](https://developers.facebook.com/docs/instagram-platform/instagram-api-with-instagram-login/get-started) is the current source.
+This guide gets you from an Instagram account to a live feed: a Meta app, a token, the first dry run, and the first real run. You need a [paid license](../README.md#license) to use the action. Allow about 30 minutes. Meta renames dashboard menus often, so if a label below doesn't match, look for the closest one. Meta's [Get Started page](https://developers.facebook.com/docs/instagram-platform/instagram-api-with-instagram-login/get-started) is the current source.
 
 ## 1. Make the account professional
 

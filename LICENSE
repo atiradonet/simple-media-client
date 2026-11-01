@@ -1,0 +1,53 @@
+simple-media-client Commercial License
+
+Copyright (c) 2026 atiradonet. All rights reserved.
+
+This software, including its source code, bundled build output, documentation
+and examples (the "Software"), is the property of atiradonet (the "Licensor").
+It is licensed, not sold.
+
+1. Paid license required
+
+   You may use, run, copy, modify, distribute or sublicense the Software, or
+   reference it from a workflow, only under a paid license granted to you in
+   writing by the Licensor. The price, scope and duration are set out in that
+   grant. Nothing in this file grants you such a license.
+
+2. Public source
+
+   The source code is publicly visible, but that does not make it open source
+   and grants no right to use it. The only exception is what GitHub's Terms of
+   Service require for public repositories: other GitHub users may view and
+   fork this repository on GitHub. That permits nothing further, including
+   running the Software.
+
+3. Requesting a license
+
+   To request a license, open an issue at
+   https://github.com/atiradonet/simple-media-client/issues
+
+4. Your content
+
+   The Licensor claims no rights in the feeds a licensed user generates with
+   the Software, or in that user's posts and data.
+
+5. Third-party components
+
+   The bundled build output includes third-party software under its own
+   license terms, listed in dist/licenses.txt. Those terms apply to those
+   components, and this license does not limit them.
+
+6. Termination
+
+   Any use outside a license granted under section 1 infringes the Licensor's
+   rights. A granted license ends when its term ends or when its terms are
+   materially breached.
+
+7. No warranty
+
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+   IMPLIED, INCLUDING THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+   PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE LICENSOR BE
+   LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY ARISING FROM OR IN
+   CONNECTION WITH THE SOFTWARE OR ITS USE, UNLESS A WRITTEN LICENSE GRANT SAYS
+   OTHERWISE.

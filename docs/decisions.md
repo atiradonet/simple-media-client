@@ -139,6 +139,11 @@ Source: GitHub docs, "Disabling and enabling a workflow". Scheduled workflows in
 - **Git runs without the `INPUT_*` variables,** so hooks and credential helpers never see the token. `gh` gets only `PATH`, `HOME` and `GH_TOKEN`.
 - **E2E pushes to a scratch branch** and deletes it, so `main` never receives fixture data.
 
+## Licensing
+
+- **Commercial license, chosen by the owner on 2026-11-02.** Use requires a paid license granted in writing; see `LICENSE`. This supersedes the "cost target: zero" line in section 1 of the brief for the license itself. Runner and Pages costs are unchanged.
+- **The repo stays public,** so section 2.7 of the brief still holds. The license is a legal limit, not a technical one: `uses:` works for anyone regardless.
+
 ## Other choices
 
 - **Reclassification (README item 7):** existing items keep their category. v1 adds no `reclassify` flag. To reclassify, delete `feed/index.json` and the item pages; the next run backfills. Simplest option; documented in the README.
