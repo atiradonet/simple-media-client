@@ -4,10 +4,12 @@ A GitHub Action that turns an Instagram account's posts into a small static feed
 
 **Using this action requires a paid license.** See [License](#license).
 
+**Status: early pre-release (v0.0.1).** The tests use recorded data, and this version hasn't yet run against a real Instagram account. The [live smoke test](docs/setup-instagram.md#7-live-smoke-test) lists what's still unconfirmed.
+
 Each run fetches the latest posts, skips those it has seen, sorts new ones into categories using rules you edit, writes one HTML page per post, removes deleted and old posts, and commits the result.
 
 ```yaml
-- uses: atiradonet/simple-media-client@v1
+- uses: atiradonet/simple-media-client@v0.0.1
   with:
     provider: instagram
     token: ${{ secrets.INSTAGRAM_TOKEN }}

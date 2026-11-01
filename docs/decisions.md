@@ -144,6 +144,10 @@ Source: GitHub docs, "Disabling and enabling a workflow". Scheduled workflows in
 - **Commercial license, chosen by the owner on 2026-11-02.** Use requires a paid license granted in writing; see `LICENSE`. This supersedes the "cost target: zero" line in section 1 of the brief for the license itself. Runner and Pages costs are unchanged.
 - **The repo stays public,** so section 2.7 of the brief still holds. The license is a legal limit, not a technical one: `uses:` works for anyone regardless.
 
+## Versioning
+
+- **The first release is v0.0.1, set by the owner on 2026-11-02,** because the action hasn't been tested against a real account. This replaces the brief's M7 tags (`v1.0.0`, `v1`). Docs and the example workflow pin `@v0.0.1`.
+
 ## Other choices
 
 - **Reclassification (README item 7):** existing items keep their category. v1 adds no `reclassify` flag. To reclassify, delete `feed/index.json` and the item pages; the next run backfills. Simplest option; documented in the README.
